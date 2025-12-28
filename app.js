@@ -3,6 +3,8 @@ import { calcAlias } from './alias_logic.js';
 import { QUESTIONS } from './data_questions.js';
 import { computeAllPhases } from './contrib_table.js';
 
+console.info('[love-diagnosis] build 20251228_145444');
+
 const STORAGE_KEY = 'love_diagnosis_state_full_r2';
 const PAGE_SIZE = 10;
 
@@ -13,21 +15,23 @@ const PHASE_LABELS = ['出会い（マッチング）','初対面','デート','
 const ANSWER_LEGEND_TEXT = '凡例：1=かなり当てはまる / 2=あてはまる / 3=どちらでもない / 4=あてはまらない / 5=かなりあてはまらない';
 
 function $(sel, root=document){ return root.querySelector(sel); }
-function el(tag, attrs={}, children=[]){
+
+function el(tag, attrs={}, children=[]) {
   const n = document.createElement(tag);
-  for (const [k,v] of Object.entries(attrs)){
+  for (const [k,v] of Object.entries(attrs)) {
     if (k === 'class') n.className = v;
     else if (k === 'html') n.innerHTML = v;
     else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
     else if (v === false || v === null || v === undefined) continue;
     else n.setAttribute(k, String(v));
   }
-  for (const c of (Array.isArray(children) ? children : [children])){
+  for (const c of (Array.isArray(children) ? children : [children])) {
     if (c == null) continue;
     n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
   }
   return n;
 }
+
 function safeParse(s){ try{ return JSON.parse(s); }catch{ return null; } }
 function clampInt(v, min, max){
   const n = Number(v);
@@ -57,16 +61,20 @@ function defaultState(){
     scroll:{start:0,questions:0,result:0},
   };
 }
+
 function loadState(){
   const st = safeParse(storageGet() || '');
   if (!st) return defaultState();
   const base = defaultState();
   base.screen = (st.screen==='start' || st.screen==='questions' || st.screen==='result') ? st.screen : 'start';
   base.pageIndex = Number.isFinite(st.pageIndex) ? Math.max(0, Math.min(1, st.pageIndex)) : 0;
+
   if (Array.isArray(st.answers) && st.answers.length === 20){
     base.answers = st.answers.map((a,i)=>({ qid:String(a?.qid ?? `Q${i+1}`), v: clampInt(a?.v,1,5) }));
   }
+
   base.lastResult = st.lastResult ?? null;
+
   if (st.scroll && typeof st.scroll === 'object'){
     base.scroll = {
       start: Number.isFinite(st.scroll.start) ? st.scroll.start : 0,
@@ -76,6 +84,7 @@ function loadState(){
   }
   return base;
 }
+
 function saveState(st){ storageSet(JSON.stringify(st)); }
 
 function hookScroll(st){
@@ -101,6 +110,11 @@ function rarityLegendText(){
   return RARITY_ORDER.map(c => `${c}:${RARITY_RATES[c]}%`).join(' / ');
 }
 
+/**
+ * 異名画像:
+ * - alias_logic.js が返す aliasAssetOverall（推奨）/ aliasAsset / asset を assets/alias/ 配下として解決
+ * - 見つからない場合は assets/alias/_default.png を表示
+ */
 function aliasAssetCandidates(aliasObj){
   const asset = aliasObj?.aliasAssetOverall ?? aliasObj?.aliasAsset ?? aliasObj?.asset ?? null;
   if (!asset) return ['./assets/alias/_default.png'];
@@ -131,12 +145,13 @@ async function evaluate(st){
   const ans = answersNormalized(st);
   if (hasUnanswered(ans)) throw new Error('未回答が存在します。');
 
+  // 別紙ロジック（ブラックボックス）
   const rarityOverall = await calcRarity(ans);
   const aliasObj = await calcAlias(ans, rarityOverall);
-
   const phasesRes = await computeAllPhases({ answers: ans });
   const phases = phasesRes?.phases ?? phasesRes ?? {};
 
+  // 表（フェーズ別）
   const tableRows = PHASE_LABELS.map(label=>{
     const node = getPhaseNode(phases, label);
     const score = node?.scoreBand ?? node?.scoreLabel ?? node?.score ?? '—';
@@ -144,6 +159,7 @@ async function evaluate(st){
     return { phaseLabel: label, scoreBand: score, note };
   });
 
+  // 詳細文章（折りたたみ）
   const phaseTexts = PHASE_LABELS.map(label=>{
     const node = getPhaseNode(phases, label);
     const s = node?.sections ?? {};
@@ -184,29 +200,57 @@ function goStartAndClear(st){
   scrollToTop();
 }
 
-function renderStart(st){
-  setSaveCode(null);
-  const card = el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [
-    el('h1', {class:'h1'}, '恋愛戦場フェーズ診断'),
-    el('div', {class:'row'}, [
-      el('button', {class:'btn btn-primary', type:'button', onclick: ()=>{ st.screen='questions'; st.pageIndex=0; saveState(st); rerender(st); scrollToTop(); }}, '診断開始'),
-    ]),
-  ]));
-  const fab = el('div', {class:'fab'}, el('button', {class:'btn btn-sm', type:'button', onclick: ()=>randomStart(st)}, 'ランダム診断'));
-  return el('div', {class:'stack'}, [card, fab]);
-}
-
 function randomStart(st){
   st.answers = Array.from({length:20}, (_,i)=>({ qid:`Q${i+1}`, v: 1 + Math.floor(Math.random()*5) }));
   st.pageIndex = 0;
   st.screen = 'questions';
+  st.lastResult = null;
   saveState(st);
   rerender(st);
   scrollToTop();
 }
 
+function renderStart(st){
+  setSaveCode(null);
+
+  // 仕様：開始画面にレアリティ凡例は表示しない
+  const card = el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [
+    el('h1', {class:'h1'}, '恋愛戦場フェーズ診断'),
+    el('div', {class:'row'}, [
+      el('button', {
+        class:'btn btn-primary', type:'button',
+        onclick: ()=>{ st.screen='questions'; st.pageIndex=0; saveState(st); rerender(st); scrollToTop(); }
+      }, '診断開始'),
+    ]),
+  ]));
+
+  const fab = el('div', {class:'fab'},
+    el('button', {class:'btn btn-sm', type:'button', onclick: ()=>randomStart(st)}, 'ランダム診断')
+  );
+
+  return el('div', {class:'stack'}, [card, fab]);
+}
+
+function setAnswer(st, idx, v){
+  // 仕様：回答タップで画面上部に飛ばない（位置維持）
+  // → 現在のスクロール位置を保存し、再描画後に復元
+  st.scroll.questions = window.scrollY || 0;
+  st.answers[idx] = { qid:`Q${idx+1}`, v };
+  saveState(st);
+  rerender(st);
+}
+
+function pageAnswered(st, start, end){
+  for (let i=start; i<end; i++){
+    const v = clampInt(st.answers[i]?.v, 1, 5);
+    if (!(v>=1 && v<=5)) return false;
+  }
+  return true;
+}
+
 function renderQuestions(st){
   setSaveCode(null);
+
   if (!Array.isArray(QUESTIONS) || QUESTIONS.length < 20){
     return el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [
       el('h1', {class:'h1'}, '質問データが見つかりません'),
@@ -249,11 +293,14 @@ function renderQuestions(st){
   }
 
   const nav = el('div', {class:'row spread'}, [
-    el('button', {class:'btn', type:'button', disabled: st.pageIndex===0, onclick: ()=>{ st.pageIndex=Math.max(0, st.pageIndex-1); saveState(st); rerender(st); scrollToTop(); }}, '戻る'),
+    el('button', {
+      class:'btn', type:'button',
+      disabled: st.pageIndex===0,
+      onclick: ()=>{ st.pageIndex=Math.max(0, st.pageIndex-1); saveState(st); rerender(st); scrollToTop(); }
+    }, '戻る'),
     el('div', {class:'note'}, `ページ ${st.pageIndex+1} / ${pageCount}`),
     el('button', {
-      class:'btn btn-primary',
-      type:'button',
+      class:'btn btn-primary', type:'button',
       disabled: !pageAnswered(st, start, end),
       onclick: ()=>nextOrResult(st),
     }, st.pageIndex === pageCount-1 ? '結果へ' : '次へ'),
@@ -262,19 +309,6 @@ function renderQuestions(st){
   return el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [header, list, nav]));
 }
 
-function setAnswer(st, idx, v){
-  st.scroll.questions = window.scrollY || 0;
-  st.answers[idx] = { qid:`Q${idx+1}`, v };
-  saveState(st);
-  rerender(st);
-}
-function pageAnswered(st, start, end){
-  for (let i=start; i<end; i++){
-    const v = clampInt(st.answers[i]?.v, 1, 5);
-    if (!(v>=1 && v<=5)) return false;
-  }
-  return true;
-}
 function nextOrResult(st){
   const pageCount = Math.ceil(20 / PAGE_SIZE);
   if (st.pageIndex < pageCount - 1){
@@ -290,7 +324,10 @@ function nextOrResult(st){
 async function goResult(st){
   const root = $('#app');
   root.innerHTML = '';
-  root.appendChild(el('section', {class:'card'}, el('div', {class:'card-inner'}, [el('h1', {class:'h1'}, '集計中…')])));
+  root.appendChild(el('section', {class:'card'}, el('div', {class:'card-inner'}, [
+    el('h1', {class:'h1'}, '集計中…')
+  ])));
+
   try{
     const res = await evaluate(st);
     st.lastResult = res;
@@ -319,6 +356,7 @@ function renderResult(st){
   const r = st.lastResult ?? null;
   setSaveCode(r?.saveCode ?? null);
 
+  // 異名画像（右配置 / 失敗時は _default.png）
   const aliasImg = el('img', { alt:'異名画像' });
   const candidates = r?.aliasAssetCandidates ?? ['./assets/alias/_default.png'];
   let ci = 0;
@@ -326,6 +364,8 @@ function renderResult(st){
   aliasImg.onerror = ()=>{ ci += 1; if (ci < candidates.length) setNext(); };
   setNext();
 
+  // 仕様：結果画面でラベル表記を出さない（「異名表示ラベル」等NG）
+  // 仕様：レアリティはテキストのみ（専用画像なし）
   const topCard = el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [
     el('div', {class:'alias-head'}, [
       el('div', {class:'stack'}, [
@@ -339,10 +379,15 @@ function renderResult(st){
     ]),
   ]));
 
+  // 仕様：表上部に凡例を置かない → 表の下にのみ表示
   const tableCard = el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [
     el('h2', {class:'h2'}, 'フェーズ別の結果表'),
     el('table', {class:'table'}, [
-      el('thead', {}, el('tr', {}, [el('th', {}, 'フェーズ'), el('th', {}, 'スコア'), el('th', {}, '備考（よくあるシーン 1つ）')])),
+      el('thead', {}, el('tr', {}, [
+        el('th', {}, 'フェーズ'),
+        el('th', {}, 'スコア'),
+        el('th', {}, '備考（よくあるシーン 1つ）')
+      ])),
       el('tbody', {}, (r?.tableRows ?? []).map(row => el('tr', {}, [
         el('td', {}, String(row.phaseLabel ?? '—')),
         el('td', {}, String(row.scoreBand ?? '—')),
@@ -363,38 +408,30 @@ function renderResult(st){
     ])),
   ]));
 
+  // 仕様：将来言い訳枠は「現時点では非表示」
   const footerCard = el('section', {class:'card'}, el('div', {class:'card-inner stack'}, [
-    el('div', {class:'row spread'}, [
-      el('div', {class:'row'}, [
-        el('button', {
-          class:'btn btn-primary',
-          type:'button',
-          onclick: ()=>{
-            st.screen='questions';
-            st.pageIndex=0;
-            st.answers = Array.from({length:20},(_,i)=>({qid:`Q${i+1}`,v:null}));
-            st.lastResult=null;
-            saveState(st);
-            rerender(st);
-            scrollToTop();
-          }
-        }, 'もう一度診断'),
-        el('button', {
-          class:'btn',
-          type:'button',
-          onclick: async ()=>{
-            const code = r?.saveCode ?? '';
-            if (!code) return;
-            try{
-              await navigator.clipboard.writeText(code);
-              alert('保存コードをコピーしました');
-            }catch{
-              alert('コピーに失敗しました');
-            }
-          }
-        }, '結果を保存'),
-        el('button', {class:'btn btn-ghost btn-sm', type:'button', onclick: ()=>goStartAndClear(st)}, '最初へ'),
-      ]),
+    el('div', {class:'row'}, [
+      el('button', {
+        class:'btn btn-primary', type:'button',
+        onclick: ()=>{
+          st.screen='questions';
+          st.pageIndex=0;
+          st.answers = Array.from({length:20},(_,i)=>({qid:`Q${i+1}`,v:null}));
+          st.lastResult=null;
+          saveState(st);
+          rerender(st);
+          scrollToTop();
+        }
+      }, 'もう一度診断'),
+      el('button', {
+        class:'btn', type:'button',
+        onclick: async ()=>{
+          const code = r?.saveCode ?? '';
+          if (!code) return;
+          try{ await navigator.clipboard.writeText(code); alert('保存コードをコピーしました'); }
+          catch{ alert('コピーに失敗しました'); }
+        }
+      }, '結果を保存'),
     ]),
   ]));
 
