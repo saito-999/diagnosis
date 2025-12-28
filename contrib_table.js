@@ -83,3 +83,4 @@ export function computeAllPhases({ answers, seed }) {
     legendText: "C:よくある / U:少し珍しい / R:珍しい / E:かなり珍しい / M:希少 / Lg:伝説級 / Sg:唯一",
   };
 }
+export const CONTRIB_BY_ID = {};
