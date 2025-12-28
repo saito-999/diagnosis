@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>恋愛戦場フェーズ診断</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">恋愛戦場フェーズ診断</div>
+    <div class="topbar-right">
+      <span id="saveCodeBadge" class="savecode"></span>
+      <button id="copySaveCodeBtn" class="btn btn-ghost btn-sm" type="button" style="display:none;">コピー</button>
+    </div>
+  </header>
+
+  <main id="app" class="app" aria-live="polite"></main>
+
+  <!-- ES Modules：index.html から読み込むエントリポイントは app.js のみ -->
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
