@@ -19,7 +19,6 @@ body{
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
   line-height:1.55;
 }
-
 .topbar{
   position:sticky; top:0; z-index:10;
   backdrop-filter: blur(10px);
@@ -32,20 +31,19 @@ body{
 .topbar-right{ display:flex; align-items:center; gap:10px; }
 .savecode{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size:12px; color: var(--muted); opacity:.95;
+  font-size:12px;
+  color: var(--muted);
+  opacity:.9;
 }
-
 .app{ max-width:var(--max); margin:18px auto; padding:0 14px 90px; }
-
 .section{ display:flex; flex-direction:column; gap:12px; }
-
 .btn{
   appearance:none;
   border:1px solid var(--line);
   background: rgba(255,255,255,.06);
   color: var(--text);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   cursor:pointer;
 }
 .btn:disabled{ opacity:.5; cursor:not-allowed; }
@@ -53,8 +51,7 @@ body{
   border-color: rgba(122,162,255,.60);
   background: rgba(122,162,255,.18);
 }
-.btn-sm{ padding:6px 10px; border-radius:10px; font-size:12px; }
-
+.btn-sm{ padding:7px 10px; border-radius:10px; font-size:12px; }
 .card{
   background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
   border:1px solid var(--line);
@@ -64,87 +61,44 @@ body{
 .card-inner{ padding:16px; }
 .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
 .note{ margin:0; font-size:12px; color:var(--muted); white-space:pre-wrap; }
+.title{ margin:0; font-size:24px; font-weight:900; }
+.subtitle{ margin:0; color:var(--muted); font-weight:700; }
+.loopline{ margin:6px 0 2px; font-weight:900; font-size:18px; min-height: 1.6em; }
+.fade{ transition: opacity .35s ease; opacity:1; }
+.fade.out{ opacity:0; }
 
-.qcard{
-  border:1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(0,0,0,.18);
-  padding: 12px;
-}
-.qtitle{ margin:0 0 10px; font-weight:750; }
-.choices{
-  display:grid;
-  grid-template-columns: repeat(5, minmax(0,1fr));
-  gap:8px;
-}
-@media (max-width: 760px){ .choices{ grid-template-columns: 1fr; } }
+.qcard{ border:1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.18); padding: 12px; }
+.qtitle{ margin:0 0 10px; font-weight:800; }
+.choices{ display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:8px; }
 .choice{
   border:1px solid var(--line);
   border-radius: 12px;
-  padding: 12px 10px;
+  padding: 12px 0;
   background: rgba(255,255,255,.04);
   cursor:pointer;
   text-align:center;
   user-select:none;
-  font-weight:800;
+  font-weight:900;
 }
-.choice[data-selected="true"]{
-  border-color: rgba(122,162,255,.85);
-  background: rgba(122,162,255,.16);
-}
+.choice[data-selected="true"]{ border-color: rgba(122,162,255,.85); background: rgba(122,162,255,.16); }
+@media (max-width: 360px){ .choice{ padding:10px 0; font-size:13px; border-radius:10px; } .choices{ gap:6px; } }
 
-.table{
-  width:100%;
-  border-collapse: collapse;
-  border:1px solid var(--line);
-  border-radius: 12px;
-  overflow:hidden;
-}
-.table th, .table td{
-  padding:10px;
-  border-bottom:1px solid var(--line);
-  text-align:left;
-  vertical-align:top;
-}
+.table{ width:100%; border-collapse: collapse; border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
+.table th, .table td{ padding:10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
 .table th{ font-size:12px; color: var(--muted); background: rgba(255,255,255,.04); }
 .table tr:last-child td{ border-bottom:0; }
 
-.details{
-  border:1px solid var(--line);
-  border-radius: 12px;
-  overflow:hidden;
-  background: rgba(255,255,255,.03);
-}
-.details summary{
-  cursor:pointer;
-  padding:12px;
-  list-style:none;
-  font-weight:800;
-}
+.details{ border:1px solid var(--line); border-radius: 12px; overflow:hidden; background: rgba(255,255,255,.03); }
+.details summary{ cursor:pointer; padding:12px; list-style:none; font-weight:900; }
 .details summary::-webkit-details-marker{ display:none; }
 .details .details-inner{ padding: 0 12px 12px; color: var(--muted); white-space:pre-wrap; }
 
-.errorbox{
-  border:1px solid rgba(255,122,122,.6);
-  background: rgba(255,122,122,.10);
-  border-radius: 12px;
-  padding: 12px;
-}
-.code{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size:12px;
-  color:var(--muted);
-  white-space: pre-wrap;
-}
+.errorbox{ border:1px solid rgba(255,122,122,.6); background: rgba(255,122,122,.10); border-radius: 12px; padding: 12px; }
+.code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color:var(--muted); white-space: pre-wrap; }
 
-/* 結果：異名文字列＋レアリティ略称＋異名画像（右） */
-.result-head{
-  display:grid;
-  grid-template-columns: 1fr 140px;
-  gap: 14px;
-  align-items:start;
-}
-@media (max-width: 760px){ .result-head{ grid-template-columns: 1fr; } }
+.headgrid{ display:grid; grid-template-columns: 1fr 140px; gap: 14px; align-items:start; }
+@media (max-width: 720px){ .headgrid{ grid-template-columns: 1fr; } }
+
 .alias-img{
   width:140px; height:140px;
   border-radius: 18px;
@@ -153,11 +107,13 @@ body{
   overflow:hidden;
   justify-self:end;
 }
-@media (max-width: 760px){ .alias-img{ justify-self:start; } }
+@media (max-width: 720px){ .alias-img{ justify-self:start; } }
 .alias-img img{ width:100%; height:100%; object-fit:cover; display:block; }
 
 .nickname{ margin:0; font-size:22px; font-weight:900; white-space:pre-wrap; }
-.rarity-code{
+.kvline{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.kvlabel{ font-size:12px; color:var(--muted); }
+.kvvalue{
   display:inline-block;
   font-size:12px;
   padding:4px 10px;
@@ -168,5 +124,5 @@ body{
   width: fit-content;
 }
 
-/* 開始画面：右下ランダム診断 */
 .fab{ position: fixed; right: 14px; bottom: 14px; z-index: 20; }
+.tapfull{ min-height: calc(100vh - 54px); display:flex; align-items:center; }
