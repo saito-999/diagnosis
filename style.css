@@ -1,4 +1,3 @@
-/* 落ち着いた配色（黒系は避ける） */
 :root{
   --bg: #f6f4f0;
   --panel: #ffffff;
@@ -7,7 +6,6 @@
   --line:#e5e7eb;
   --accent:#4f7cac;
   --accent2:#7aa874;
-  --danger:#b65c5c;
   --shadow: 0 6px 20px rgba(0,0,0,.06);
   --radius: 14px;
 }
@@ -36,14 +34,16 @@ body{
 }
 
 .stack{ display:flex; flex-direction:column; gap:14px; }
+.center{ text-align:center; }
 
 .h1{ font-size: 22px; line-height:1.25; margin:0; }
 .h2{ font-size: 16px; line-height:1.35; margin:0; color:var(--muted); }
 .p{ margin:0; color:var(--text); line-height:1.65; }
 .small{ font-size:12px; color:var(--muted); }
 
-.center{ text-align:center; }
 .tapHint{ margin-top:10px; font-size:12px; color:var(--muted); }
+
+.hr{ height:1px; background:var(--line); border:0; margin:0; }
 
 .btnRow{ display:flex; gap:10px; flex-wrap:wrap; }
 button{
@@ -67,15 +67,22 @@ button.secondary{
   background: var(--accent2);
   color: #fff;
 }
-button.ghost{
-  background: transparent;
-}
-button:disabled{
-  opacity:.45;
-  cursor:not-allowed;
-}
+button.ghost{ background: transparent; }
 
-.hr{ height:1px; background:var(--line); border:0; margin:0; }
+.legendBox{
+  border:1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background:#fff;
+}
+.legendRow{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  font-size: 13px;
+  color: var(--text);
+}
+.legendKey{ color: var(--muted); }
 
 .qList{ display:flex; flex-direction:column; gap:12px; }
 .qItem{
@@ -158,16 +165,6 @@ button:disabled{
 }
 .table tr:last-child td{ border-bottom:0; }
 
-.legend{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  font-size: 13px;
-  color: var(--text);
-}
-.legendRow{ display:flex; justify-content:space-between; gap:12px; }
-.legendKey{ color: var(--muted); }
-
 details{
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -182,7 +179,6 @@ summary{
 }
 summary::-webkit-details-marker{ display:none; }
 
-.sectionBlock{ margin-top:10px; }
 .secTitle{ font-size: 13px; color: var(--muted); margin: 10px 0 6px; }
 .bullets{ margin: 0; padding-left: 18px; color: var(--text); }
 .sentences{ margin: 6px 0 0; color: var(--text); line-height:1.65; }
