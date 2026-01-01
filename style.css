@@ -69,27 +69,18 @@ button.secondary{
 }
 button.ghost{ background: transparent; }
 
-.legendBox{
+/* 凡例（横書き） */
+.legendInline{
   border:1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px;
   background:#fff;
-}
-/* 横書き（可読性優先） */
-.legendLine{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px 14px;
-  align-items:center;
   font-size: 13px;
   color: var(--text);
+  line-height: 1.6;
+  word-break: keep-all;
 }
-.legendItem{
-  display:flex;
-  gap:6px;
-  align-items:baseline;
-}
-.legendKey{ color: var(--muted); min-width: 10px; }
+.legendInline span{ color: var(--muted); }
 
 .qList{ display:flex; flex-direction:column; gap:12px; }
 .qItem{
