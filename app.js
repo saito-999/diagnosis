@@ -13,14 +13,13 @@ const PHASE_LABELS_JA = {
   marriage: "結婚",
 };
 
-// 本紙のスコア表示名（UIで変換）
 const SCORE_LABEL = { 1:"激弱", 2:"弱", 3:"普通", 4:"強", 5:"激強" };
 
 const RARITY_LEGEND_FIXED = [
   ["C","35%"], ["U","25%"], ["R","20%"], ["E","12%"], ["M","6%"], ["Lg","1.5%"], ["Sg","0.5%"],
 ];
 
-const STORAGE_KEY = "love_diag_state_r5";
+const STORAGE_KEY = "love_diag_state_r6";
 const SCREENS = { TITLE:"title", START:"start", Q1_10:"q1_10", Q11_20:"q11_20", ALIAS:"alias", RESULT:"result" };
 
 const state = { screen:SCREENS.TITLE, answersMap:{}, result:null, runMode:"manual", scrollByScreen:{} };
@@ -28,6 +27,7 @@ const state = { screen:SCREENS.TITLE, answersMap:{}, result:null, runMode:"manua
 function $(sel){ return document.querySelector(sel); }
 function clampInt(n,min,max){ const x=parseInt(n,10); return Number.isNaN(x)?min:Math.min(max,Math.max(min,x)); }
 function safeJsonParse(s,f){ try{ return JSON.parse(s);}catch{ return f; } }
+function scoreLabel(n){ const x=clampInt(n,1,5); return SCORE_LABEL[x] || String(x); }
 
 async function stableHash(str){
   const enc = new TextEncoder().encode(str);
@@ -78,24 +78,33 @@ function clearToStart(){
 function hasAllAnswered(s,e){ for(let i=s;i<=e;i++){ if(!state.answersMap[`Q${i}`]) return false; } return true; }
 function buildAnswersNormalized(){ const a=[]; for(let i=1;i<=20;i++) a.push(clampInt(state.answersMap[`Q${i}`],1,5)); return a; }
 function randomAnswersMap(){ const m={}; for(let i=1;i<=20;i++) m[`Q${i}`]=1+Math.floor(Math.random()*5); return m; }
-function scoreLabel(n){ const x=clampInt(n,1,5); return SCORE_LABEL[x] || String(x); }
+
+async function resolveAliasImageSrc(aliasAssetOverall){
+  const baseDir = "./assets/alias/";
+  const fallback = baseDir + "_default.png";
+  const candidate = aliasAssetOverall ? (baseDir + aliasAssetOverall) : "";
+  if (!candidate) return fallback;
+  try{ const r = await fetch(candidate, { method:"HEAD" }); if (r.ok) return candidate; }catch{}
+  return fallback;
+}
 
 async function computeResult(){
   if (!hasAllAnswered(1,20)) return null;
-  const answers = buildAnswersNormalized();
 
-  const rarityRes = await Promise.resolve(calcRarity(answers));
+  const answersNormalized = buildAnswersNormalized();
+
+  const rarityRes = await Promise.resolve(calcRarity(answersNormalized));
   const rarity = (rarityRes && typeof rarityRes === "object" ? rarityRes.rarity : rarityRes) || "C";
 
-  const aliasRes = await Promise.resolve(calcAlias(answers, rarity));
+  const aliasRes = await Promise.resolve(calcAlias(answersNormalized, rarity));
   const nickname = (aliasRes && typeof aliasRes === "object" ? (aliasRes.aliasOverall || aliasRes.nickname || "") : String(aliasRes||""));
   const aliasAsset = (aliasRes && typeof aliasRes === "object" ? (aliasRes.aliasAssetOverall || aliasRes.asset || "") : "");
 
-  const phasesRes = await Promise.resolve(computeAllPhases({ answers, meta:{ runMode: state.runMode } }));
+  const phasesRes = await Promise.resolve(computeAllPhases({ answers: answersNormalized, meta:{ runMode: state.runMode } }));
   const scoreBandByPhase = (phasesRes && (phasesRes.scoreBandByPhase || phasesRes.phase_scores || phasesRes.phaseScores)) || {};
   const patternKeysByPhase = (phasesRes && (phasesRes.patternKeysByPhase || phasesRes.pattern_keys_by_phase)) || {};
 
-  const saveCode = await stableHash(JSON.stringify(answers));
+  const saveCode = await stableHash(JSON.stringify(answersNormalized));
 
   const phaseTexts = [];
   for (const phaseKey of PHASE_KEYS){
@@ -116,16 +125,7 @@ async function computeResult(){
   return { saveCode, nickname, rarity, aliasAsset, scoreBandByPhase, patternKeysByPhase, phaseTexts, tableRows };
 }
 
-async function resolveAliasImageSrc(aliasAssetOverall){
-  const baseDir = "./assets/alias/";
-  const fallback = baseDir + "_default.png";
-  const candidate = aliasAssetOverall ? (baseDir + aliasAssetOverall) : "";
-  if (!candidate) return fallback;
-  try{ const r = await fetch(candidate, { method:"HEAD" }); if (r.ok) return candidate; }catch{}
-  return fallback;
-}
-
-/* ---------- render ---------- */
+/* render */
 
 function render(){
   const root = $("#app");
@@ -145,8 +145,7 @@ function renderTitle(root){
     el("h1",{ class:"h1" },"恋愛戦場タイプ診断"),
     el("div",{ class:"h2" },"あなたが下手でも悪いんでもない。逢ってないだけ。"),
     el("hr",{ class:"hr" }),
-    el("div",{ id:"loopLines", class:"stack", style:"gap:6px;min-height:92px" }),
-    el("div",{ class:"tapHint" },"画面をタップすると次へ")
+    el("div",{ id:"loopLines", class:"stack", style:"gap:6px;min-height:92px" })
   );
   card.addEventListener("click", ()=> setScreen(SCREENS.START));
   root.appendChild(card);
@@ -196,7 +195,13 @@ function renderQuestions(root,start,end){
     el("div",{ class:"btnRow" },
       elBtn("戻る","ghost", ()=>{ if(start===1) setScreen(SCREENS.START); else setScreen(SCREENS.Q1_10); }),
       elBtn("最初へ","ghost", ()=> clearToStart()),
-      elBtn("次へ","primary", async ()=>{ if(!hasAllAnswered(start,end)) return; if(end===10){ setScreen(SCREENS.Q11_20); return; } state.result=await computeResult(); saveState(); setScreen(SCREENS.ALIAS); }, { disabled: !hasAllAnswered(start,end), "data-role":"next" })
+      elBtn("次へ","primary", async ()=>{
+        if(!hasAllAnswered(start,end)) return;
+        if(end===10){ setScreen(SCREENS.Q11_20); return; }
+        state.result = await computeResult();
+        saveState();
+        setScreen(SCREENS.ALIAS);
+      }, { disabled: !hasAllAnswered(start,end), "data-role":"next" })
     )
   );
 
@@ -219,7 +224,8 @@ function buildQuestionItems(start,end){
     for(let v=1;v<=5;v++){
       const btn = el("button",{ class:`choiceBtn${selected===v?" selected":""}`, type:"button" }, String(v));
       btn.addEventListener("click", ()=>{
-        state.answersMap[qid]=v; saveState();
+        state.answersMap[qid]=v;
+        saveState();
         [...choices.querySelectorAll("button")].forEach((b,idx)=> b.classList.toggle("selected",(idx+1)===v));
       });
       choices.appendChild(btn);
@@ -231,16 +237,17 @@ function buildQuestionItems(start,end){
 }
 
 function renderAlias(root){
-  const nickname = state.result?.nickname || "";
-  const card = el("section",{ class:"card stack" },
+  const nickname = state.result?.nickname || "—";
+  const card = el("section",{ class:"card" },
     el("div",{ class:"aliasRow" },
-      el("div",{ class:"aliasTextBlock" }, el("h1",{ class:"h1" }, nickname || "—")),
+      el("div",{ class:"aliasTextBlock" }, el("h1",{ class:"h1" }, nickname)),
       el("div",{ class:"aliasImgWrap" }, el("img",{ alt:"", src:"./assets/alias/_default.png" }))
-    ),
-    el("div",{ class:"tapHint" },"画面をタップすると次へ")
+    )
   );
-  const img=card.querySelector("img");
+
+  const img = card.querySelector("img");
   resolveAliasImageSrc(state.result?.aliasAsset || "").then(src=>{ if(img) img.src=src; });
+
   card.addEventListener("click", ()=> setScreen(SCREENS.RESULT));
   root.appendChild(card);
 }
@@ -280,13 +287,12 @@ function renderResult(root){
   );
   container.appendChild(el("section",{ class:"card stack" }, legend));
 
-  const detailsWrap = el("section",{ class:"stack" },
+  container.appendChild(el("section",{ class:"stack" },
     ...PHASE_KEYS.map(phaseKey=>{
       const pt = r.phaseTexts.find(x=>x.phaseKey===phaseKey);
       return buildPhaseDetails(phaseKey, pt?.sections || {});
     })
-  );
-  container.appendChild(detailsWrap);
+  ));
 
   container.appendChild(el("section",{ class:"card stack" },
     el("div",{ class:"btnRow" },
