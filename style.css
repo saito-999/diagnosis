@@ -1,11 +1,52 @@
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif;background:#f6f4f0}
-#app{max-width:960px;margin:0 auto;padding:16px}
-.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px;margin-bottom:16px}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif;
+  background:#f6f4f0;
+}
+#app{
+  max-width:960px;
+  margin:0 auto;
+  padding:16px;
+}
+.card{
+  background:#fff;
+  border:1px solid #ddd;
+  border-radius:12px;
+  padding:16px;
+  margin-bottom:16px;
+}
 .center{text-align:center}
 .stack{display:flex;flex-direction:column;gap:12px}
-button{padding:10px 14px;border-radius:10px;border:1px solid #ccc;background:#fff;font-size:14px}
-button.primary{background:#4f7cac;color:#fff;border:none}
-.legendInline{border:1px solid #ddd;border-radius:10px;padding:8px;font-size:13px}
-.qItem{border:1px solid #ddd;border-radius:10px;padding:10px}
-.choices{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px}
-.choiceBtn.selected{background:#dbeafe;border-color:#4f7cac}
+button{
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px solid #ccc;
+  background:#fff;
+  font-size:14px;
+}
+button.primary{
+  background:#4f7cac;
+  color:#fff;
+  border:none;
+}
+.legendInline{
+  border:1px solid #ddd;
+  border-radius:10px;
+  padding:8px;
+  font-size:13px;
+}
+.qItem{
+  border:1px solid #ddd;
+  border-radius:10px;
+  padding:10px;
+}
+.choices{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:6px;
+  margin-top:6px;
+}
+.choiceBtn.selected{
+  background:#dbeafe;
+  border-color:#4f7cac;
+}
