@@ -1,23 +1,38 @@
 /**
  * result_key_logic.js（ES Modules）
- * 根拠: 別紙「結果文章キー算出_v0」
+ * 根拠: 仕様書_別紙_結果文章キー算出_v0
  *
  * 役割:
- * - 回答配列（長さ20 / 値1..5）から、各フェーズの「結果文章キー（MT-XX等）」を算出して返す
- * - 文章本文や text.js の内容には依存しない（禁止事項に従う）
+ * - 質問回答（answers: 1..5）と寄与表（contrib_table.js）に基づき
+ *   フェーズ別の「結果文章キー」（例: MT-03）を算出して返す。
  *
- * 入力として使う情報:
- * - answers（質問IDごとの回答値）
- * - contrib_table.js が返す debug.tag_totals（寄与表に基づく評価軸スコア集計）
+ * 重要:
+ * - 文章本文には一切触れない（text.js は別責務）
+ * - フェーズを跨いだ合算はしない
+ * - 寄与表にない質問IDは使わない（contrib_table.js が担保）
  *
- * 注意:
- * - 本ファイルは「キー算出」だけを担う。文章の選択・生成は行わない。
+ * I/O:
+ * - input: { answers:number[] }  // 20問、1..5
+ * - output: { patternKeysByPhase: Record<phaseKey,string> }
+ *
+ * 依存:
+ * - contrib_table.js の computeAllPhases() が返す debug.tag_totals を利用し、
+ *   「評価軸スコア（フェーズ別）」を元にパターンを決定する。
+ *
+ * NOTE:
+ * - この別紙(v0)は「どう判定するか（どの軸が最も高い、差分、正負偏り等）」の方針のみで
+ *   “具体的な” ルールテーブルが未定義のため、
+ *   本実装は「評価軸の上位2つ（符号付き）の組み合わせ」から 1..25 を一意に割り当てる。
+ *   ルールが固まったら、このファイルの decidePatternNo() を置換する。
  */
 
 import { computeAllPhases } from "./contrib_table.js";
 
-const PHASES = ["matching","firstMeet","date","relationship","marriage"];
-const PREFIX = {
+// フェーズキー（本紙と一致）
+export const PHASES = ["matching","firstMeet","date","relationship","marriage"];
+
+// 結果文章キーのプレフィックス（結果文章別紙と一致）
+const PREFIX_BY_PHASE = {
   matching: "MT",
   firstMeet: "FM",
   date: "DT",
@@ -25,94 +40,92 @@ const PREFIX = {
   marriage: "MR",
 };
 
-// ※分岐数は本紙に規定がないため任意（テストで分岐が起きるための本実装用デフォルト）
-const PATTERN_COUNT = {
-  matching: 25,
-  firstMeet: 25,
-  date: 12,
-  relationship: 12,
-  marriage: 8,
+// フォールバック（結果文章設計別紙のデフォルト想定）
+const DEFAULT_KEY_BY_PHASE = {
+  matching: "MT-08",
+  firstMeet: "FM-05",
+  date: "DT-08",
+  relationship: "RL-08",
+  marriage: "MR-01",
 };
 
-function clampInt(n, min, max){
-  const x = Number.parseInt(n, 10);
-  if (!Number.isFinite(x)) return min;
-  return Math.min(max, Math.max(min, x));
+function pad2(n){
+  const x = Math.max(0, Math.min(99, Number(n)||0));
+  return String(x).padStart(2, "0");
 }
 
-function pad2(n){
-  return String(n).padStart(2, "0");
+function safeAnswers(answers){
+  const a = Array.isArray(answers) ? answers : [];
+  const out = [];
+  for (let i=0;i<20;i++){
+    const v = Number.parseInt(a[i], 10);
+    out.push(Number.isFinite(v) ? Math.min(5, Math.max(1, v)) : 3);
+  }
+  return out;
+}
+
+function sortedAxisEntries(axisTotals){
+  const entries = Object.entries(axisTotals || {}).filter(([,v])=>Number.isFinite(v) && v !== 0);
+  // 大きい順（絶対値優先→符号付き→キー名）
+  entries.sort((a,b)=>{
+    const av = Math.abs(a[1]), bv = Math.abs(b[1]);
+    if (bv !== av) return bv - av;
+    if (b[1] !== a[1]) return b[1] - a[1];
+    return String(a[0]).localeCompare(String(b[0]));
+  });
+  return entries;
+}
+
+function decidePatternNo(axisTotals, desiredMax){
+  const entries = sortedAxisEntries(axisTotals);
+  if (entries.length === 0) return null;
+
+  // 登場軸の固定順（アルファベット）
+  const axisOrder = Object.keys(axisTotals || {}).sort((a,b)=>String(a).localeCompare(String(b)));
+  const top = entries[0][0];
+  const second = (entries[1] ? entries[1][0] : top);
+
+  const i = Math.max(0, axisOrder.indexOf(top));
+  const j = Math.max(0, axisOrder.indexOf(second));
+
+  // desiredMax 個に一意化（5*5=25の想定）
+  const base = 5;
+  const ii = i % base;
+  const jj = j % base;
+  const no = ii * base + jj + 1;
+
+  const finalNo = ((no - 1) % desiredMax) + 1;
+  return finalNo;
+}
+
+function patternNoByPhase(phaseKey, axisTotals){
+  if (phaseKey === "matching") return decidePatternNo(axisTotals, 25);
+  return decidePatternNo(axisTotals, 8);
+}
+
+function buildKey(phaseKey, patternNo){
+  const prefix = PREFIX_BY_PHASE[phaseKey];
+  if (!prefix || !patternNo) return DEFAULT_KEY_BY_PHASE[phaseKey] || "";
+  return `${prefix}-${pad2(patternNo)}`;
 }
 
 /**
- * tag_totals[phase] の内容から、フェーズ内パターン番号(1..N)を決める。
- * 判定方式（別紙 5. の範囲で具体化）:
- * - 特定評価軸（タグ）が最も高い（topTag）
- * - top と second の差分
- * - 正負（topTagの符号）
- * を用いて、N個に写像する
+ * フェーズ別の結果文章キーを算出して返す
+ * @param {{ answers:number[] }} input
+ * @returns {{ patternKeysByPhase: Record<string,string>, debug?: any }}
  */
-function patternIndexFromTagTotals(phaseKey, tagTotals){
-  const entries = Object.entries(tagTotals || {}).map(([k,v])=>[k, Number(v||0)]);
-  if (!entries.length) return 1;
+export async function calcResultKeys(input){
+  const answers = safeAnswers(input?.answers);
 
-  // 絶対値で大きい順
-  entries.sort((a,b)=>Math.abs(b[1]) - Math.abs(a[1]));
-
-  const [topTag, topVal] = entries[0];
-  const secondVal = entries[1]?.[1] ?? 0;
-
-  const signBit = topVal >= 0 ? 1 : 0;
-  const diff = Math.abs(topVal) - Math.abs(secondVal);
-
-  // diff bucket (0..2)
-  const diffBucket = diff >= 6 ? 2 : (diff >= 2 ? 1 : 0);
-
-  // magnitude bucket (0..2)
-  const mag = Math.abs(topVal);
-  const magBucket = mag >= 10 ? 2 : (mag >= 4 ? 1 : 0);
-
-  // topTag order index for determinism
-  const tagNames = entries.map(([k])=>k).slice().sort();
-  const tagIndex = tagNames.indexOf(topTag); // 0..(T-1)
-
-  const N = PATTERN_COUNT[phaseKey] || 8;
-
-  // combine features -> 0..N-1
-  const seed = (
-    (tagIndex + 1) * 17 +
-    signBit * 31 +
-    diffBucket * 13 +
-    magBucket * 7
-  );
-
-  const idx0 = ((seed % N) + N) % N;
-  return idx0 + 1;
-}
-
-export async function calcResultTextKeys(answers){
-  // answers: number[] length 20 (1..5)
-  const norm = Array.isArray(answers) ? answers.map(a=>clampInt(a,1,5)) : [];
-  const res = await Promise.resolve(computeAllPhases({ answers: norm, meta: {} }));
+  const res = await Promise.resolve(computeAllPhases({ answers, meta: { purpose: "resultKey" } }));
   const tagTotalsByPhase = (res && res.debug && res.debug.tag_totals) ? res.debug.tag_totals : {};
 
   const patternKeysByPhase = {};
-  const meta = {};
-
   for (const phaseKey of PHASES){
-    const idx = patternIndexFromTagTotals(phaseKey, tagTotalsByPhase[phaseKey] || {});
-    const key = `${PREFIX[phaseKey]}-${pad2(idx)}`;
-    patternKeysByPhase[phaseKey] = key;
-    meta[phaseKey] = {
-      idx,
-      key,
-      top: (() => {
-        const e = Object.entries(tagTotalsByPhase[phaseKey] || {}).map(([k,v])=>[k, Number(v||0)]);
-        e.sort((a,b)=>Math.abs(b[1]) - Math.abs(a[1]));
-        return e[0] ? { axis: e[0][0], value: e[0][1] } : null;
-      })(),
-    };
+    const axisTotals = tagTotalsByPhase[phaseKey] || {};
+    const n = patternNoByPhase(phaseKey, axisTotals);
+    patternKeysByPhase[phaseKey] = buildKey(phaseKey, n) || (DEFAULT_KEY_BY_PHASE[phaseKey] || "");
   }
 
-  return { patternKeysByPhase, meta };
+  return { patternKeysByPhase, debug: { tagTotalsByPhase } };
 }
