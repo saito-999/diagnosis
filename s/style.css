@@ -1,0 +1,47 @@
+:root { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.4; }
+body { margin: 0; padding: 0; }
+.screen { display: none; padding: 16px; box-sizing: border-box; min-height: 100vh; }
+.screen.is-active { display: block; }
+.title { margin: 0 0 8px 0; font-size: 24px; }
+.subtitle { margin: 0 0 16px 0; }
+.btn { padding: 10px 14px; font-size: 16px; cursor: pointer; }
+.start-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 16px; }
+.start-text p { margin: 0 0 10px; }
+.start-note { margin-top: 20px; }
+
+.title-wrap { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; }
+.loop { margin-top: 16px; }
+.loop-line { opacity: 0; animation: fade 1.6s linear infinite; }
+.loop-line:nth-child(1){ animation-delay: 0s; }
+.loop-line:nth-child(2){ animation-delay: .4s; }
+.loop-line:nth-child(3){ animation-delay: .8s; }
+.loop-line:nth-child(4){ animation-delay: 1.2s; }
+@keyframes fade { 0%{opacity:0;} 20%{opacity:1;} 50%{opacity:1;} 70%{opacity:0;} 100%{opacity:0;} }
+
+.legend { margin-bottom: 12px; }
+.questions { display: flex; flex-direction: column; gap: 14px; }
+.question { padding: 10px 0; border-bottom: 1px solid #ddd; }
+.qtext { margin: 0 0 8px; }
+.choices { display: flex; gap: 10px; flex-wrap: wrap; }
+.choice { display: inline-flex; align-items: center; gap: 6px; }
+.nav { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+
+.alias-wrap { display: flex; gap: 16px; align-items: center; min-height: 100vh; }
+.alias-text { font-size: 28px; }
+.alias-img { max-width: 45vw; max-height: 45vh; object-fit: contain; }
+@media (max-width: 640px){
+  .alias-wrap { flex-direction: column; }
+  .alias-img { max-width: 80vw; }
+}
+
+.savecode { position: fixed; top: 10px; right: 10px; opacity: .35; font-size: 12px; }
+
+.result-head { display: flex; gap: 12px; align-items: center; }
+.nickname-block { flex: 1; }
+.label { }
+.result-table table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+.result-table th, .result-table td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
+.rarity-legend { margin-top: 12px; }
+.phase-details { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+details > summary { cursor: pointer; }
+.result-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
