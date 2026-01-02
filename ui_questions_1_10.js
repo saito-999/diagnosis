@@ -1,60 +1,67 @@
-export function renderQuestions1to10(root, handlers) {
-  const { questions, onAnswer, onNext } = handlers;
+export function render(root, ctx) {
+  const { state, actions } = ctx;
+  const pageQids = Array.from({ length: 10 }, (_, i) => `Q${i + 1}`);
 
-  const container = document.createElement("div");
-  container.style.padding = "16px";
+  const legend = `1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる`;
 
-  const legend = document.createElement("div");
-  legend.textContent = "1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる";
-  legend.style.marginBottom = "12px";
-  container.appendChild(legend);
+  const qs = actions.getQuestionsByQids(pageQids);
 
-  const answered = new Set();
+  const missing = qs.filter(q => !q.qid || !q.text);
 
-  questions.slice(0, 10).forEach(q => {
-    if (!q || !q.qid || !q.text) return;
+  const renderQuestion = (q) => {
+    const v = actions.getAnswerValue(q.qid);
+    const choices = [1,2,3,4,5].map(n => `
+      <label class="choice">
+        <input type="radio" name="${q.qid}" value="${n}" ${v===n ? "checked" : ""} />
+        <span>${n}</span>
+      </label>
+    `).join("");
+    return `
+      <div class="q" data-qid="${q.qid}">
+        <div class="q-title">${q.qid}　${q.text}</div>
+        <div class="choices">${choices}</div>
+      </div>
+    `;
+  };
 
-    const block = document.createElement("div");
-    block.style.marginBottom = "16px";
+  root.innerHTML = `
+    <div class="container">
+      <div class="card stack">
+        <div class="legend">${legend}</div>
+        ${missing.length ? `<div class="notice">※質問データに欠損がある項目は表示しません</div>` : ""}
+        <div class="stack">
+          ${qs.filter(q => q.qid && q.text).map(renderQuestion).join("")}
+        </div>
+        <div class="row between" style="margin-top:6px;">
+          <button class="ghost" id="btnToStart">最初へ</button>
+          <div class="btns">
+            <button id="btnNext">次へ</button>
+          </div>
+        </div>
+        <div id="warn" class="notice" style="display:none;">未回答の質問があります</div>
+      </div>
+    </div>
+  `;
 
-    const qText = document.createElement("div");
-    qText.textContent = q.text;
-    qText.style.marginBottom = "8px";
-    block.appendChild(qText);
+  root.querySelector("#btnToStart")?.addEventListener("click", () => actions.go("start"));
 
-    const options = document.createElement("div");
-    for (let v = 1; v <= 5; v++) {
-      const label = document.createElement("label");
-      label.style.marginRight = "8px";
-
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = q.qid;
-      input.value = v;
-      input.addEventListener("change", () => {
-        answered.add(q.qid);
-        onAnswer && onAnswer(q.qid, v);
-        updateNext();
-      });
-
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(String(v)));
-      options.appendChild(label);
-    }
-
-    block.appendChild(options);
-    container.appendChild(block);
+  root.querySelectorAll('input[type="radio"]').forEach((el) => {
+    el.addEventListener("change", (e) => {
+      const input = e.target;
+      const qid = input?.name;
+      const v = Number(input?.value);
+      actions.setAnswer(qid, v);
+    });
   });
 
-  const nextBtn = document.createElement("button");
-  nextBtn.textContent = "次へ";
-  nextBtn.disabled = true;
-  nextBtn.addEventListener("click", () => onNext && onNext());
-
-  function updateNext() {
-    nextBtn.disabled = answered.size < 10;
-  }
-
-  container.appendChild(nextBtn);
-  root.appendChild(container);
+  root.querySelector("#btnNext")?.addEventListener("click", () => {
+    const ok = actions.isAllAnswered(pageQids);
+    const warn = root.querySelector("#warn");
+    if (!ok) {
+      if (warn) warn.style.display = "";
+      return;
+    }
+    if (warn) warn.style.display = "none";
+    actions.go("q11_20");
+  });
 }

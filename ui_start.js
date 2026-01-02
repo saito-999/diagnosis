@@ -1,53 +1,32 @@
-export function renderStart(root, handlers) {
-  const { onStart, onRandom } = handlers;
+export function render(root, ctx) {
+  const { actions } = ctx;
 
-  const container = document.createElement("div");
-  container.style.minHeight = "100vh";
-  container.style.display = "flex";
-  container.style.flexDirection = "column";
-  container.style.justifyContent = "space-between";
-  container.style.padding = "16px";
+  root.innerHTML = `
+    <div class="container">
+      <div class="card stack">
+        <div>
+          <div class="h1">恋愛戦場タイプ診断</div>
+        </div>
 
-  const top = document.createElement("div");
+        <div class="stack" style="gap:12px;">
+          <button id="btnStart" aria-label="診断開始">▶ 診断を始める</button>
+          <button id="btnRandom" class="secondary" aria-label="ランダム診断">ランダム診断</button>
+        </div>
 
-  const title = document.createElement("h1");
-  title.textContent = "恋愛戦場タイプ診断";
+        <div class="stack" style="gap:10px;">
+          <div class="small" style="line-height:1.7;">
+            これは、あなたの価値や優劣・人間性を決めつける診断ではありません。<br/>
+            恋愛の傾向を統計的にモデル化したものであり、正解とは限りません。<br/><br/>
+            恋愛心理学・行動科学・交際統計など複数研究の傾向から<br/>
+            「出会い〜交際〜結婚」フェーズ別のデータを用いて作成しています。
+          </div>
 
-  const desc = document.createElement("div");
-  desc.innerHTML = `
-    <p>これは、あなたの価値や優劣・人間性を決めつける診断ではありません。</p>
-    <p>恋愛の傾向を統計的にモデル化したものであり、正解とは限りません。</p>
-    <p>
-      恋愛心理学・行動科学・交際統計など複数研究の傾向から<br>
-      「出会い〜交際〜結婚」フェーズ別のデータを用いて作成しています。
-    </p>
+          <div class="small" style="margin-top:4px;">※この診断は医学的・医療的評価を目的としたものではありません</div>
+        </div>
+      </div>
+    </div>
   `;
 
-  top.appendChild(title);
-  top.appendChild(desc);
-
-  const middle = document.createElement("div");
-
-  const startBtn = document.createElement("button");
-  startBtn.textContent = "▶ 診断を始める";
-  startBtn.addEventListener("click", () => onStart && onStart());
-
-  const randomBtn = document.createElement("button");
-  randomBtn.textContent = "ランダム診断";
-  randomBtn.style.marginLeft = "8px";
-  randomBtn.addEventListener("click", () => onRandom && onRandom());
-
-  middle.appendChild(startBtn);
-  middle.appendChild(randomBtn);
-
-  const bottom = document.createElement("div");
-  const note = document.createElement("small");
-  note.textContent = "※この診断は医学的・医療的評価を目的としたものではありません";
-  bottom.appendChild(note);
-
-  container.appendChild(top);
-  container.appendChild(middle);
-  container.appendChild(bottom);
-
-  root.appendChild(container);
+  root.querySelector("#btnStart")?.addEventListener("click", () => actions.go("q1_10"));
+  root.querySelector("#btnRandom")?.addEventListener("click", () => actions.runRandom());
 }

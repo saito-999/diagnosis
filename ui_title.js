@@ -1,35 +1,34 @@
-export function renderTitle(root, onNext) {
-  const container = document.createElement("div");
-  container.style.minHeight = "100vh";
-  container.style.display = "flex";
-  container.style.flexDirection = "column";
-  container.style.justifyContent = "center";
-  container.style.alignItems = "center";
-  container.style.textAlign = "center";
+export function render(root, ctx) {
+  const { actions } = ctx;
 
-  const title = document.createElement("h1");
-  title.textContent = "恋愛戦場タイプ診断";
+  root.innerHTML = `
+    <div class="container">
+      <div class="card" id="titleCard" style="cursor:pointer;">
+        <div class="h1">恋愛戦場タイプ診断</div>
+        <div class="h2">あなたが下手でも悪いんでもない。逢ってないだけ。</div>
+        <div class="fadeLoop" aria-label="行ループ表示">
+          <span id="loopText"></span>
+        </div>
+        <div class="small" style="margin-top:14px;">画面をタップすると進みます</div>
+      </div>
+    </div>
+  `;
 
-  const subtitle = document.createElement("p");
-  subtitle.textContent = "あなたが下手でも悪いんでもない。逢ってないだけ。";
+  const lines = ["会ってる。", "合ってない。", "遇ってる。", "遭ってない。"];
+  let i = 0;
+  const loopEl = root.querySelector("#loopText");
+  const tick = () => {
+    if (!loopEl) return;
+    loopEl.textContent = lines[i % lines.length];
+    loopEl.style.animationDelay = "0s";
+    i += 1;
+  };
+  tick();
+  const timer = window.setInterval(tick, 400);
 
-  const loop = document.createElement("div");
-  const lines = ["会ってる。","合ってない。","遇ってる。","遭ってない。"];
-  let idx = 0;
-  loop.textContent = lines[idx];
-
-  setInterval(() => {
-    idx = (idx + 1) % lines.length;
-    loop.textContent = lines[idx];
-  }, 400);
-
-  container.appendChild(title);
-  container.appendChild(subtitle);
-  container.appendChild(loop);
-
-  container.addEventListener("click", () => {
-    onNext();
+  const card = root.querySelector("#titleCard");
+  card?.addEventListener("click", () => {
+    window.clearInterval(timer);
+    actions.go("start");
   });
-
-  root.appendChild(container);
 }

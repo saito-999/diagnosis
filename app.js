@@ -1,268 +1,322 @@
-import { calcRarity } from "./rarity_logic.js";
-import { calcAlias } from "./alias_logic.js";
-import { QUESTIONS } from "./data_questions.js";
-import { computeAllPhases } from "./contrib_table.js";
-import { calcResultKeys } from "./result_key_logic.js";
-import { getText } from "./text.js";
-
 import { render as renderTitle } from "./ui_title.js";
 import { render as renderStart } from "./ui_start.js";
-import { render as renderQ1to10 } from "./ui_questions_1_10.js";
-import { render as renderQ11to20 } from "./ui_questions_11_20.js";
+import { render as renderQ1_10 } from "./ui_questions_1_10.js";
+import { render as renderQ11_20 } from "./ui_questions_11_20.js";
 import { render as renderAlias } from "./ui_alias.js";
 import { render as renderResult } from "./ui_result.js";
 
-const STORAGE_KEY = "love_diag_beta_session_v1";
+import { QUESTIONS } from "./data_questions.js";
+import { computeAllPhases } from "./contrib_table.js";
+import { calcRarity } from "./rarity_logic.js";
+import { calcAlias } from "./alias_logic.js";
+import { getText } from "./text.js";
+import { calcResultKeys } from "./result_key_logic.js";
 
-const PHASE_KEYS = ["matching", "firstMeet", "date", "relationship", "marriage"];
-const SCREEN_KEYS = ["title", "start", "q1_10", "q11_20", "alias", "result"];
-const SCORE_LABEL = { 1: "激弱", 2: "弱", 3: "普通", 4: "強", 5: "激強" };
+const STORAGE_KEY = "love_diagnosis_beta_state_v1";
 
-const state = {
-  screen: "title",
-  runMode: "manual",
-  answers: [],
-  result: null,
-  scrollByScreen: {},
+const PHASE_ORDER = ["matching", "firstMeet", "date", "relationship", "marriage"];
+const PHASE_LABEL = {
+  matching: "出会い",
+  firstMeet: "初対面",
+  date: "デート",
+  relationship: "交際",
+  marriage: "結婚",
 };
 
-function safeParse(s) {
-  try { return JSON.parse(s); } catch { return null; }
+const SCORE_LABEL = {
+  1: "激弱",
+  2: "弱",
+  3: "普通",
+  4: "強",
+  5: "激強",
+};
+
+const SCREEN_RENDERERS = {
+  title: renderTitle,
+  start: renderStart,
+  q1_10: renderQ1_10,
+  q11_20: renderQ11_20,
+  alias: renderAlias,
+  result: renderResult,
+};
+
+const initialState = () => ({
+  screen: "title",
+  answers: [], // { qid, v }
+  result: null,
+  runMode: "manual",
+  scrollByScreen: {}, // { [screen]: number }
+});
+
+let state = initialState();
+
+function loadState() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return;
+    if (!parsed.screen || !(parsed.screen in SCREEN_RENDERERS)) return;
+    state = {
+      ...initialState(),
+      ...parsed,
+      scrollByScreen: parsed.scrollByScreen && typeof parsed.scrollByScreen === "object" ? parsed.scrollByScreen : {},
+    };
+  } catch {
+    // ignore
+  }
 }
 
-function persist() {
-  const snapshot = {
-    screen: state.screen,
-    runMode: state.runMode,
-    answers: state.answers,
-    result: state.result,
-    scrollByScreen: state.scrollByScreen,
-  };
-  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch {}
+function persistState() {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
 }
 
-function restore() {
-  const saved = safeParse(sessionStorage.getItem(STORAGE_KEY));
-  if (!saved || typeof saved !== "object") return;
-
-  if (SCREEN_KEYS.includes(saved.screen)) state.screen = saved.screen;
-  if (saved.runMode === "manual" || saved.runMode === "random") state.runMode = saved.runMode;
-  if (Array.isArray(saved.answers)) state.answers = saved.answers;
-  if (saved.result && typeof saved.result === "object") state.result = saved.result;
-  if (saved.scrollByScreen && typeof saved.scrollByScreen === "object") state.scrollByScreen = saved.scrollByScreen;
+function saveScroll() {
+  state.scrollByScreen[state.screen] = window.scrollY || 0;
+  persistState();
 }
 
-function setScrollForScreen(screen, y) {
-  state.scrollByScreen[screen] = Math.max(0, Number(y) || 0);
+function restoreScroll() {
+  const y = state.scrollByScreen?.[state.screen];
+  if (typeof y === "number") {
+    window.scrollTo(0, y);
+  } else {
+    window.scrollTo(0, 0);
+  }
 }
 
-function restoreScrollForScreen(screen) {
-  const y = state.scrollByScreen?.[screen];
-  if (typeof y !== "number") return;
-  requestAnimationFrame(() => window.scrollTo(0, y));
-}
-
-function setScreen(next) {
-  if (!SCREEN_KEYS.includes(next)) return;
-  setScrollForScreen(state.screen, window.scrollY);
-  state.screen = next;
-  persist();
-  render();
-}
-
-function isValidQuestion(q) {
-  return q && typeof q.qid === "string" && q.qid && typeof q.text === "string" && q.text;
-}
-
-function validQuestions() {
-  return Array.isArray(QUESTIONS) ? QUESTIONS.filter(isValidQuestion) : [];
-}
-
-function pageQids(pageIndex) {
-  const v = validQuestions();
-  const slice = pageIndex === 0 ? v.slice(0, 10) : v.slice(10, 20);
-  return slice.map(q => q.qid);
+function setState(patch) {
+  state = { ...state, ...patch };
+  persistState();
 }
 
 function setAnswer(qid, v) {
-  const value = Number(v);
-  if (!qid || !(value >= 1 && value <= 5)) return;
+  if (!qid) return;
+  if (!Number.isInteger(v) || v < 1 || v > 5) return;
 
-  const idx = state.answers.findIndex(a => a && a.qid === qid);
-  if (idx === -1) state.answers.push({ qid, v: value });
-  else state.answers[idx] = { qid, v: value };
+  const next = state.answers.slice();
+  const idx = next.findIndex(a => a && a.qid === qid);
+  if (idx >= 0) next[idx] = { qid, v };
+  else next.push({ qid, v });
 
-  persist();
+  setState({ answers: next });
 }
 
-function hasAllAnswered(qids) {
-  if (!Array.isArray(qids) || qids.length === 0) return false;
-  const set = new Set(state.answers.filter(a => a && a.qid).map(a => a.qid));
-  return qids.every(qid => set.has(qid));
+function getAnswerValue(qid) {
+  const hit = state.answers.find(a => a && a.qid === qid);
+  return hit ? hit.v : null;
+}
+
+function isAllAnswered(qids) {
+  for (const qid of qids) {
+    const v = getAnswerValue(qid);
+    if (!Number.isInteger(v)) return false;
+  }
+  return true;
 }
 
 function normalizeAnswers() {
-  const order = Array.from({ length: 20 }, (_, i) => `Q${i + 1}`);
-  const map = new Map();
-
-  for (const a of state.answers) {
-    if (!a || typeof a.qid !== "string") continue;
-    const v = Number(a.v);
-    if (v >= 1 && v <= 5) map.set(a.qid, v);
+  // { qid, v } (20) -> number[20] ordered Q1..Q20
+  const map = new Map(state.answers.filter(Boolean).map(a => [a.qid, a.v]));
+  const arr = [];
+  for (let i = 1; i <= 20; i += 1) {
+    const qid = `Q${i}`;
+    const v = map.get(qid);
+    if (!Number.isInteger(v) || v < 1 || v > 5) return null;
+    arr.push(v);
   }
-
-  if (!order.every(qid => map.has(qid))) return null;
-  return order.map(qid => map.get(qid));
+  return arr;
 }
 
-async function sha256HexUpper(input) {
-  const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  const bytes = new Uint8Array(hash);
-  let hex = "";
-  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
-  return hex.toUpperCase();
-}
-
-async function genSaveCode(answersNormalized) {
+async function makeSaveCodeFromAnswersNormalized(answersNormalized) {
+  // Spec: answersNormalized を JSON 文字列化 → SHA-256 → 先頭10文字を英数字（大文字）
+  // 実装: SHA-256 bytes を BigInt 化 → base36 → 先頭10文字（不足は0埋め）
   const json = JSON.stringify(answersNormalized);
-  const hex = await sha256HexUpper(json);
-  return hex.slice(0, 10);
+  const bytes = new TextEncoder().encode(json);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+  const bi = BigInt("0x" + hex);
+  const base36 = bi.toString(36).toUpperCase();
+  const padded = base36.padStart(10, "0");
+  return padded.slice(0, 10);
 }
 
-async function buildResult(answersNormalized) {
+function getQuestionsByQids(qids) {
+  const byId = new Map(Array.isArray(QUESTIONS) ? QUESTIONS.map(q => [q?.qid, q]) : []);
+  return qids.map(qid => byId.get(qid)).filter(Boolean);
+}
+
+function phaseLabel(phaseKey) {
+  return PHASE_LABEL[phaseKey] ?? String(phaseKey ?? "");
+}
+
+function getPhaseOrder() {
+  return PHASE_ORDER.slice();
+}
+
+async function computeResult() {
+  const answersNormalized = normalizeAnswers();
+  if (!answersNormalized) return null;
+
+  // contrib / scores
   const contrib = computeAllPhases({ answers: answersNormalized });
-  const scoreBandByPhase = contrib?.phase_scores;
+  const scoreBandByPhase = contrib?.phase_scores ?? null;
 
+  // pattern keys
+  const keysOut = calcResultKeys({ answers: answersNormalized, contrib });
+  const patternKeysByPhase = keysOut?.patternKeysByPhase ?? null;
+
+  // rarity
   const rarityOut = calcRarity(answersNormalized);
-  const rarity = rarityOut?.rarity;
+  const rarity = typeof rarityOut === "string" ? rarityOut : (rarityOut?.rarity ?? "");
 
+  // alias (nickname + asset)
   const aliasOut = calcAlias(answersNormalized, rarity);
-  const nickname = aliasOut?.aliasOverall;
-  const aliasAssetOverall = aliasOut?.aliasAssetOverall;
+  const nickname = aliasOut?.aliasOverall ?? "";
+  const aliasAssetOverall = aliasOut?.aliasAssetOverall ?? "_default.png";
 
-  const keyOut = calcResultKeys({ answers: answersNormalized, contrib });
-  const patternKeysByPhase = keyOut?.patternKeysByPhase;
-
-  const phaseTexts = PHASE_KEYS.map(phaseKey => {
-    const raw = patternKeysByPhase?.[phaseKey];
-    const patternKey = (typeof raw === "string" && raw) ? raw : "_default";
-    const sections = getText(phaseKey, patternKey);
-    return { phaseKey, patternKey, sections };
+  // phaseTexts (fixed order)
+  const phaseTexts = PHASE_ORDER.map((phaseKey) => {
+    const rawKey = patternKeysByPhase?.[phaseKey];
+    const keyForText = (typeof rawKey === "string" && rawKey.trim()) ? rawKey.trim() : "_default";
+    const textOut = getText(phaseKey, keyForText);
+    const sections = textOut?.sections ?? textOut ?? {};
+    return { phaseKey, patternKey: keyForText, sections };
   });
 
-  const tableRows = PHASE_KEYS.map(phaseKey => {
-    const scoreBand = scoreBandByPhase?.[phaseKey];
-    const scoreLabel = SCORE_LABEL?.[scoreBand] ?? "";
-    const sections = phaseTexts.find(p => p.phaseKey === phaseKey)?.sections;
-    const note = sections?.scene?.bullets?.[0] ?? "";
-    return { phaseKey, scoreBand, scoreLabel, note };
+  // tableRows
+  const tableRows = PHASE_ORDER.map((phaseKey) => {
+    const band = scoreBandByPhase?.[phaseKey];
+    const scoreBand = Number.isInteger(band) ? band : null;
+    const scoreLabel = scoreBand ? (SCORE_LABEL[scoreBand] ?? "") : "";
+    const scene = phaseTexts.find(p => p.phaseKey === phaseKey)?.sections?.scene ?? null;
+    const note = Array.isArray(scene?.bullets) && scene.bullets.length ? String(scene.bullets[0]) : "";
+    return {
+      phaseKey,
+      phaseLabel: phaseLabel(phaseKey),
+      scoreBand: scoreBand ?? null,
+      scoreLabel,
+      note,
+    };
   });
 
-  const saveCode = await genSaveCode(answersNormalized);
+  const saveCode = await makeSaveCodeFromAnswersNormalized(answersNormalized);
 
   return {
     saveCode,
     nickname,
-    rarity,
-    scoreBandByPhase,
-    tableRows,
-    phaseTexts,
-    debug: contrib?.debug,
     aliasAssetOverall,
+    rarity,
+    scoreBandByPhase: scoreBandByPhase ?? {},
+    patternKeysByPhase: patternKeysByPhase ?? {},
+    phaseTexts,
+    tableRows,
+    debug: contrib?.debug ?? undefined,
   };
 }
 
-function startManual() {
-  state.runMode = "manual";
-  persist();
-  setScreen("q1_10");
+async function runRandom() {
+  const answers = [];
+  for (let i = 1; i <= 20; i += 1) {
+    const qid = `Q${i}`;
+    const v = 1 + Math.floor(Math.random() * 5);
+    answers.push({ qid, v });
+  }
+  setState({ answers, runMode: "random" });
+  const result = await computeResult();
+  setState({ result });
+  go("alias");
 }
 
-async function startRandom() {
-  state.runMode = "random";
-  state.answers = Array.from({ length: 20 }, (_, i) => ({
-    qid: `Q${i + 1}`,
-    v: 1 + Math.floor(Math.random() * 5),
-  }));
-
-  const normalized = normalizeAnswers();
-  if (!normalized) return;
-
-  state.result = await buildResult(normalized);
-  persist();
-  setScreen("alias");
+async function computeResultAndGoAlias() {
+  const result = await computeResult();
+  setState({ result });
+  go("alias");
 }
 
-function nextFromQ1() {
-  if (!hasAllAnswered(pageQids(0))) return;
-  setScreen("q11_20");
+function resetToStart() {
+  setState({ ...initialState(), screen: "start" });
+  render();
 }
 
-async function nextFromQ2() {
-  if (!hasAllAnswered(pageQids(1))) return;
-
-  const normalized = normalizeAnswers();
-  if (!normalized) return;
-
-  state.result = await buildResult(normalized);
-  persist();
-  setScreen("alias");
+async function copySaveCode() {
+  const code = state?.result?.saveCode ?? "";
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    // ignore
+  }
 }
 
-function aliasNext() {
-  setScreen("result");
+async function saveResult() {
+  const r = state?.result;
+  if (!r) return;
+  const blob = new Blob([JSON.stringify(r, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `result_${r.saveCode || "result"}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
 }
 
-function retry() {
-  state.runMode = "manual";
-  state.answers = [];
-  state.result = null;
-  state.scrollByScreen = {};
-  persist();
-  setScreen("start");
-}
-
-function saveResult() {
-  // 未定義＝実装しない
+function go(screen) {
+  if (!(screen in SCREEN_RENDERERS)) return;
+  saveScroll();
+  setState({ screen });
+  render();
 }
 
 function render() {
-  const root = globalThis.__LOVE_DIAG_ROOT__;
+  const root = document.getElementById("app");
   if (!root) return;
 
-  const ctx = {
-    state,
-    actions: {
-      setScreen,
+  const renderer = SCREEN_RENDERERS[state.screen] ?? renderTitle;
+
+  const ctx = Object.freeze({
+    state: Object.freeze(state),
+    actions: Object.freeze({
+      go,
       setAnswer,
-      startManual,
-      startRandom,
-      nextFromQ1,
-      nextFromQ2,
-      aliasNext,
-      retry,
+      getAnswerValue,
+      isAllAnswered,
+      getQuestionsByQids,
+      computeResultAndGoAlias,
+      runRandom,
+      phaseLabel,
+      getPhaseOrder,
+      resetToStart,
+      copySaveCode,
       saveResult,
-    },
-  };
+    }),
+  });
 
-  if (state.screen === "title") renderTitle(root, ctx);
-  else if (state.screen === "start") renderStart(root, ctx);
-  else if (state.screen === "q1_10") renderQ1to10(root, ctx);
-  else if (state.screen === "q11_20") renderQ11to20(root, ctx);
-  else if (state.screen === "alias") renderAlias(root, ctx);
-  else if (state.screen === "result") renderResult(root, ctx);
-  else renderTitle(root, ctx);
+  renderer(root, ctx);
 
-  restoreScrollForScreen(state.screen);
+  requestAnimationFrame(() => {
+    restoreScroll();
+    persistState();
+  });
 }
 
-document.addEventListener("scroll", () => {
-  setScrollForScreen(state.screen, window.scrollY);
-  persist();
-}, { passive: true });
+window.addEventListener("scroll", () => {
+  // スクロール位置は画面ごとに保存
+  // 高頻度で保存しすぎないよう軽いデバウンス
+  if (saveScroll._t) window.clearTimeout(saveScroll._t);
+  saveScroll._t = window.setTimeout(() => saveScroll(), 120);
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveScroll();
+});
 
 document.addEventListener("DOMContentLoaded", () => {
-  restore();
+  loadState();
   render();
 });
