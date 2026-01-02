@@ -9,6 +9,3 @@ body {
 #app {
   min-height: 100vh;
 }
-button, input, select, textarea {
-  font: inherit;
-}
