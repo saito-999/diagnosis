@@ -15,12 +15,13 @@ import { render as renderResult } from "./ui_result.js";
 const STORAGE_KEY = "love_diag_beta_session_v1";
 
 const PHASE_KEYS = ["matching", "firstMeet", "date", "relationship", "marriage"];
+const SCREEN_KEYS = ["title", "start", "q1_10", "q11_20", "alias", "result"];
 const SCORE_LABEL = { 1: "激弱", 2: "弱", 3: "普通", 4: "強", 5: "激強" };
 
 const state = {
   screen: "title",
   runMode: "manual",
-  answers: [], // { qid: "Q1".."Q20", v: 1..5 } の配列
+  answers: [],
   result: null,
   scrollByScreen: {},
 };
@@ -41,11 +42,10 @@ function persist() {
 }
 
 function restore() {
-  const raw = sessionStorage.getItem(STORAGE_KEY);
-  const saved = safeParse(raw);
+  const saved = safeParse(sessionStorage.getItem(STORAGE_KEY));
   if (!saved || typeof saved !== "object") return;
 
-  if (typeof saved.screen === "string") state.screen = saved.screen;
+  if (SCREEN_KEYS.includes(saved.screen)) state.screen = saved.screen;
   if (saved.runMode === "manual" || saved.runMode === "random") state.runMode = saved.runMode;
   if (Array.isArray(saved.answers)) state.answers = saved.answers;
   if (saved.result && typeof saved.result === "object") state.result = saved.result;
@@ -63,6 +63,7 @@ function restoreScrollForScreen(screen) {
 }
 
 function setScreen(next) {
+  if (!SCREEN_KEYS.includes(next)) return;
   setScrollForScreen(state.screen, window.scrollY);
   state.screen = next;
   persist();
@@ -114,24 +115,22 @@ function normalizeAnswers() {
   return order.map(qid => map.get(qid));
 }
 
-function fnv1a64(str) {
-  let h = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  for (let i = 0; i < str.length; i++) {
-    h ^= BigInt(str.charCodeAt(i));
-    h = (h * prime) & 0xffffffffffffffffn;
-  }
-  return h;
+async function sha256HexUpper(input) {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  const bytes = new Uint8Array(hash);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex.toUpperCase();
 }
 
-function genSaveCode(answersNormalized) {
-  const joined = answersNormalized.join("");
-  const h = fnv1a64(joined);
-  const code = h.toString(36).toUpperCase().padStart(10, "0").slice(0, 10);
-  return code;
+async function genSaveCode(answersNormalized) {
+  const json = JSON.stringify(answersNormalized);
+  const hex = await sha256HexUpper(json);
+  return hex.slice(0, 10);
 }
 
-function buildResult(answersNormalized) {
+async function buildResult(answersNormalized) {
   const contrib = computeAllPhases({ answers: answersNormalized });
   const scoreBandByPhase = contrib?.phase_scores;
 
@@ -160,7 +159,7 @@ function buildResult(answersNormalized) {
     return { phaseKey, scoreBand, scoreLabel, note };
   });
 
-  const saveCode = genSaveCode(answersNormalized);
+  const saveCode = await genSaveCode(answersNormalized);
 
   return {
     saveCode,
@@ -169,8 +168,6 @@ function buildResult(answersNormalized) {
     scoreBandByPhase,
     tableRows,
     phaseTexts,
-    phaseKeys: PHASE_KEYS,
-    patternKeysByPhase,
     debug: contrib?.debug,
     aliasAssetOverall,
   };
@@ -182,7 +179,7 @@ function startManual() {
   setScreen("q1_10");
 }
 
-function startRandom() {
+async function startRandom() {
   state.runMode = "random";
   state.answers = Array.from({ length: 20 }, (_, i) => ({
     qid: `Q${i + 1}`,
@@ -192,7 +189,7 @@ function startRandom() {
   const normalized = normalizeAnswers();
   if (!normalized) return;
 
-  state.result = buildResult(normalized);
+  state.result = await buildResult(normalized);
   persist();
   setScreen("alias");
 }
@@ -202,12 +199,13 @@ function nextFromQ1() {
   setScreen("q11_20");
 }
 
-function nextFromQ2() {
+async function nextFromQ2() {
   if (!hasAllAnswered(pageQids(1))) return;
+
   const normalized = normalizeAnswers();
   if (!normalized) return;
 
-  state.result = buildResult(normalized);
+  state.result = await buildResult(normalized);
   persist();
   setScreen("alias");
 }
@@ -226,13 +224,12 @@ function retry() {
 }
 
 function saveResult() {
-  // 未定義＝実装しない（UI側が必要なら別途定義）
+  // 未定義＝実装しない
 }
 
 function render() {
-  const root = document.getElementById("app");
+  const root = globalThis.__LOVE_DIAG_ROOT__;
   if (!root) return;
-  root.replaceChildren();
 
   const ctx = {
     state,
