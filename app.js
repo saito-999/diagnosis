@@ -1,10 +1,15 @@
+// UI本体（本紙契約）
+// - index.html は画面構造のみ
+// - app.js は状態管理・画面遷移・別紙JS呼び出し・結果整形のみ
+// - 算出ロジック（採点/判定/文章選択）は別紙JSの責務
+
 import { QUESTIONS } from "./data_questions.js";
 import { computeAllPhases } from "./contrib_table.js";
 import { calcRarity } from "./rarity_logic.js";
 import { calcAlias } from "./alias_logic.js";
 import { getText } from "./text.js";
 
-const PHASE_KEYS = ["matching","firstMeet","date","relationship","marriage"];
+const PHASE_KEYS = ["matching", "firstMeet", "date", "relationship", "marriage"];
 const PHASE_LABELS_JA = {
   matching: "出会い（マッチング）",
   firstMeet: "初対面",
@@ -12,231 +17,613 @@ const PHASE_LABELS_JA = {
   relationship: "交際",
   marriage: "結婚",
 };
-const SCORE_LABEL = { 1:"激弱", 2:"弱", 3:"普通", 4:"強", 5:"激強" };
-const RARITY_LEGEND_FIXED = [["C","35%"],["U","25%"],["R","20%"],["E","12%"],["M","6%"],["Lg","1.5%"],["Sg","0.5%"]];
 
-const STORAGE_KEY="love_diag_state_r7";
-const SCREENS={TITLE:"title",START:"start",Q1_10:"q1_10",Q11_20:"q11_20",ALIAS:"alias",RESULT:"result"};
-const state={screen:SCREENS.TITLE,answersMap:{},result:null,runMode:"manual"};
+const SCORE_LABEL = {
+  1: "激弱",
+  2: "弱",
+  3: "普通",
+  4: "強",
+  5: "激強",
+};
 
-const $=s=>document.querySelector(s);
-const clampInt=(n,min,max)=>{const x=parseInt(n,10);return Number.isNaN(x)?min:Math.min(max,Math.max(min,x));};
-const scoreLabel=n=>SCORE_LABEL[clampInt(n,1,5)]||"";
+const STORAGE_KEY = "love_diag_beta_state_v1";
 
-async function stableHash(str){
-  const enc=new TextEncoder().encode(str);
-  const buf=await crypto.subtle.digest("SHA-256",enc);
-  const arr=Array.from(new Uint8Array(buf));
-  const hex=arr.slice(0,10).map(b=>b.toString(16).padStart(2,"0")).join("");
-  return BigInt("0x"+hex).toString(36).toUpperCase().padStart(8,"0").slice(0,10);
-}
-const buildAnswers=()=>Array.from({length:20},(_,i)=>clampInt(state.answersMap[`Q${i+1}`],1,5));
-const hasAll=(a,b)=>{for(let i=a;i<=b;i++) if(!state.answersMap[`Q${i}`]) return false; return true;};
-const qText=qid=>Array.isArray(QUESTIONS)?String((QUESTIONS.find(x=>x?.qid===qid)?.text)||""):"";
-
-function save(){sessionStorage.setItem(STORAGE_KEY,JSON.stringify({screen:state.screen,answersMap:state.answersMap,result:state.result,runMode:state.runMode}));}
-function restore(){const s=sessionStorage.getItem(STORAGE_KEY); if(!s) return; try{const o=JSON.parse(s); Object.assign(state,o);}catch{}}
-function setScreen(s){state.screen=s; save(); render(); window.scrollTo({top:0,behavior:"auto"});}
-
-async function getPatternKeysByPhase(answers){
-  try{
-    const mod=await import("./result_key_logic.js");
-    const fn=(typeof mod.calcResultKeys==="function")?mod.calcResultKeys:(typeof mod.default==="function")?mod.default:null;
-    if(!fn) return {};
-    const r=await Promise.resolve(fn({answersNormalized:answers,answers}));
-    return r?.patternKeysByPhase||r?.pattern_keys_by_phase||r?.keysByPhase||{};
-  }catch{return {};}
+function $(id) {
+  return document.getElementById(id);
 }
 
-async function computeResult(){
-  const answers=buildAnswers();
-  const rarityRes=await Promise.resolve(calcRarity(answers));
-  const rarity=(rarityRes&&typeof rarityRes==="object"?rarityRes.rarity:rarityRes)||"C";
-  const aliasRes=await Promise.resolve(calcAlias(answers,rarity));
-  const nickname=(aliasRes&&typeof aliasRes==="object"?(aliasRes.aliasOverall||aliasRes.nickname||aliasRes.name||""):String(aliasRes||""));
-  const aliasAsset=(aliasRes&&typeof aliasRes==="object"?(aliasRes.aliasAssetOverall||aliasRes.asset||aliasRes.image||""):"");
-  const phasesRes=await Promise.resolve(computeAllPhases({answers,meta:{runMode:state.runMode}}));
-  const scoreBandByPhase=phasesRes?.scoreBandByPhase||phasesRes?.phase_scores||phasesRes?.phaseScores||{};
-  const patternKeysByPhase=await getPatternKeysByPhase(answers);
-  const saveCode=await stableHash(JSON.stringify(answers));
-  const phaseTexts=[];
-  for(const phaseKey of PHASE_KEYS){
-    const patternKey=patternKeysByPhase[phaseKey]||"_default";
-    const t=await Promise.resolve(getText(phaseKey,patternKey));
-    const sections=t?.sections||t||{};
-    phaseTexts.push({phaseKey,patternKey,sections});
+function clampInt(n, min, max) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return null;
+  const i = Math.trunc(x);
+  if (i < min || i > max) return null;
+  return i;
+}
+
+function parseQIndex(qid) {
+  const m = /^Q(\d{1,2})$/.exec(String(qid || ""));
+  if (!m) return null;
+  return clampInt(m[1], 1, 20);
+}
+
+function getValidQuestions() {
+  if (!Array.isArray(QUESTIONS)) return [];
+  return QUESTIONS.filter((q) => q && typeof q.qid === "string" && typeof q.text === "string" && q.qid && q.text);
+}
+
+function initState() {
+  return {
+    screen: "title", // title/start/q1/q2/nickname/result
+    answers: [], // [{qid, v}]
+    result: null,
+    scroll: {}, // per screen
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return null;
+    return obj;
+  } catch {
+    return null;
   }
-  const tableRows=PHASE_KEYS.map(phaseKey=>{
-    const scoreN=scoreBandByPhase[phaseKey];
-    const score=(scoreN==null?"":scoreLabel(scoreN));
-    const sec=phaseTexts.find(x=>x.phaseKey===phaseKey)?.sections;
-    const note=Array.isArray(sec?.scene?.bullets)&&sec.scene.bullets.length?String(sec.scene.bullets[0]):"";
-    return {phaseKey,phaseLabel:PHASE_LABELS_JA[phaseKey],score,note};
-  });
-  return {saveCode,nickname,rarity,aliasAsset,tableRows,phaseTexts};
 }
 
-async function aliasImgSrc(asset){
-  const base="./assets/alias/";
-  const fallback=base+"_default.png";
-  if(!asset) return fallback;
-  try{const r=await fetch(base+asset,{method:"HEAD"}); if(r.ok) return base+asset;}catch{}
-  return fallback;
-}
-
-function el(tag,attrs={},...kids){
-  const n=document.createElement(tag);
-  for(const [k,v] of Object.entries(attrs||{})){
-    if(k==="class") n.className=v; else n.setAttribute(k,v);
+function saveState(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
   }
-  for(const c of kids.flat()){
-    if(c==null) continue;
-    n.appendChild(typeof c==="string"?document.createTextNode(c):c);
+}
+
+function captureScroll(state) {
+  state.scroll = state.scroll || {};
+  state.scroll[state.screen] = window.scrollY || 0;
+}
+
+function restoreScroll(state) {
+  const y = state?.scroll?.[state.screen];
+  if (typeof y === "number" && Number.isFinite(y)) {
+    window.scrollTo(0, y);
+  } else {
+    window.scrollTo(0, 0);
   }
-  return n;
-}
-function btn(label,cls,fn,attrs={}){
-  const b=el("button",{type:"button",class:cls,...attrs},label);
-  b.addEventListener("click",e=>{e.stopPropagation(); fn();});
-  return b;
 }
 
-function renderTitle(root){
-  const card=el("section",{class:"card stack center"},
-    el("h1",{class:"h1"},"恋愛戦場タイプ診断"),
-    el("div",{class:"h2"},"あなたが下手でも悪いんでもない。逢ってないだけ。"),
-    el("hr",{class:"hr"}),
-    el("div",{id:"loopLines",class:"loopLines"}),
-    el("div",{class:"tapHint"},"画面をタップすると次へ")
-  );
-  card.addEventListener("click",()=>setScreen(SCREENS.START));
-  root.appendChild(card);
-  const lines=["会ってる。","合ってない。","遇ってる。","遭ってない。"];
-  const wrap=card.querySelector("#loopLines"); let idx=0;
-  const show=()=>{wrap.innerHTML=""; for(let i=0;i<lines.length;i++){const j=(idx+i)%lines.length; wrap.appendChild(el("div",{class:`line${i===0?"":" dim"}`},lines[j]));} idx=(idx+1)%lines.length;};
-  show(); clearInterval(window.__loveDiagLoopTimer); window.__loveDiagLoopTimer=setInterval(show,400);
+function showScreen(state, nextScreen) {
+  captureScroll(state);
+
+  const screens = document.querySelectorAll(".screen");
+  screens.forEach((el) => el.classList.remove("is-active"));
+
+  const target = document.querySelector(`.screen[data-screen="${nextScreen}"]`);
+  if (target) target.classList.add("is-active");
+
+  state.screen = nextScreen;
+  saveState(state);
+
+  // 復元時に不自然に飛ばないよう、描画後に復元
+  requestAnimationFrame(() => restoreScroll(state));
 }
 
-function renderStart(root){
-  root.appendChild(el("section",{class:"card stack"},
-    el("h1",{class:"h1"},"恋愛戦場タイプ診断"),
-    el("div",{class:"btnRow"},
-      btn("診断開始","primary",()=>{state.runMode="manual";save();setScreen(SCREENS.Q1_10);}),
-      btn("ランダム診断","secondary",async()=>{state.runMode="random"; for(let i=1;i<=20;i++) state.answersMap[`Q${i}`]=1+Math.floor(Math.random()*5); save(); state.result=await computeResult(); save(); setScreen(SCREENS.ALIAS);})
-    ),
-    el("div",{class:"p"},"これは、あなたの価値や優劣・人間性を決めつける診断ではありません。"),
-    el("div",{class:"p"},"恋愛の傾向を統計的にモデル化したものであり、正解とは限りません。"),
-    el("div",{class:"p"},"恋愛心理学・行動科学・交際統計など複数研究の傾向から「出会い〜交際〜結婚」フェーズ別のデータを用いて作成しています。"),
-    el("div",{class:"small"},"※この診断は医学的・医療的評価を目的としたものではありません")
-  ));
+function upsertAnswer(state, qid, v) {
+  const qn = parseQIndex(qid);
+  const vv = clampInt(v, 1, 5);
+  if (!qn || vv == null) return;
+
+  const idx = state.answers.findIndex((a) => a && a.qid === qid);
+  if (idx >= 0) state.answers[idx] = { qid, v: vv };
+  else state.answers.push({ qid, v: vv });
+
+  saveState(state);
 }
 
-function renderQuestions(root,a,b){
-  const list=el("div",{class:"qList"});
-  for(let i=a;i<=b;i++){
-    const qid=`Q${i}`; const text=qText(qid); if(!text) continue;
-    const wrap=el("div",{class:"qItem"}, el("p",{class:"qTitle"},text));
-    const choices=el("div",{class:"choices"});
-    for(let v=1;v<=5;v++){
-      const sel=state.answersMap[qid]===v;
-      const c=btn(String(v),`choiceBtn${sel?" selected":""}`,()=>{state.answersMap[qid]=v;save(); render();});
-      choices.appendChild(c);
+function getAnswerValue(state, qid) {
+  const a = state.answers.find((x) => x && x.qid === qid);
+  return a ? a.v : null;
+}
+
+function getPageQuestions(validQuestions, pageIndex /* 0 or 1 */) {
+  const start = pageIndex === 0 ? 0 : 10;
+  const end = pageIndex === 0 ? 10 : 20;
+  return validQuestions.slice(start, end);
+}
+
+function isPageComplete(state, pageQuestions) {
+  return pageQuestions.every((q) => getAnswerValue(state, q.qid) != null);
+}
+
+function isAllComplete(state, validQuestions) {
+  return validQuestions.length === 20 && validQuestions.every((q) => getAnswerValue(state, q.qid) != null);
+}
+
+function normalizeAnswers(state) {
+  // 未回答がある状態では行わない
+  const normalized = new Array(20).fill(null);
+  for (const a of state.answers) {
+    if (!a || typeof a.qid !== "string") continue;
+    const qi = parseQIndex(a.qid);
+    const vv = clampInt(a.v, 1, 5);
+    if (!qi || vv == null) continue;
+    normalized[qi - 1] = vv;
+  }
+  if (normalized.some((x) => x == null)) return null;
+  return normalized;
+}
+
+function renderQuestions(state, pageIndex, containerId) {
+  const container = $(containerId);
+  if (!container) return;
+
+  const questions = getValidQuestions();
+  const pageQuestions = getPageQuestions(questions, pageIndex);
+
+  container.innerHTML = "";
+
+  for (const q of pageQuestions) {
+    // 欠損している質問は表示しない（本紙）
+    if (!q || typeof q.qid !== "string" || typeof q.text !== "string") continue;
+    if (!q.qid || !q.text) continue;
+
+    const card = document.createElement("div");
+    card.className = "q-card";
+
+    const p = document.createElement("p");
+    p.className = "q-title";
+    p.textContent = q.text;
+
+    const choices = document.createElement("div");
+    choices.className = "choices";
+
+    const current = getAnswerValue(state, q.qid);
+
+    for (let v = 1; v <= 5; v++) {
+      const label = document.createElement("label");
+      label.className = "choice";
+
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = q.qid;
+      input.value = String(v);
+      if (current === v) input.checked = true;
+
+      input.addEventListener("change", () => {
+        upsertAnswer(state, q.qid, v);
+        // ボタン活性の再評価
+        updateNavButtons(state);
+      });
+
+      const span = document.createElement("span");
+      span.textContent = String(v);
+
+      label.appendChild(input);
+      label.appendChild(span);
+      choices.appendChild(label);
     }
-    wrap.appendChild(choices); list.appendChild(wrap);
+
+    card.appendChild(p);
+    card.appendChild(choices);
+    container.appendChild(card);
   }
-  const nextDisabled=!hasAll(a,b);
-  root.appendChild(el("section",{class:"card stack"},
-    el("div",{class:"small"},`質問 ${a}〜${b}`),
-    el("div",{class:"legendInline"}, el("span",{},"凡例： "), "1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる"),
-    list,
-    el("div",{class:"btnRow"},
-      btn("戻る","ghost",()=>{ if(a===1) setScreen(SCREENS.START); else setScreen(SCREENS.Q1_10); }),
-      btn("最初へ","ghost",()=>{state.answersMap={};state.result=null;state.runMode="manual";save();setScreen(SCREENS.START);}),
-      btn("次へ","primary",async()=>{
-        if(!hasAll(a,b)) return;
-        if(b===10){ setScreen(SCREENS.Q11_20); return; }
-        state.result=await computeResult(); save(); setScreen(SCREENS.ALIAS);
-      }, {disabled: nextDisabled})
-    )
-  ));
 }
 
-function renderAlias(root){
-  const r=state.result;
-  const card=el("section",{class:"card stack"},
-    el("div",{class:"aliasRow"},
-      el("div",{class:"aliasTextBlock"}, el("h1",{class:"h1"}, r?.nickname || "—")),
-      el("div",{class:"aliasImgWrap"}, el("img",{alt:"",src:"./assets/alias/_default.png"}))
-    ),
-    el("div",{class:"tapHint"},"画面をタップすると次へ")
-  );
-  const img=card.querySelector("img");
-  aliasImgSrc(r?.aliasAsset||"").then(src=>{img.src=src;});
-  card.addEventListener("click",()=>setScreen(SCREENS.RESULT));
-  root.appendChild(card);
+function updateNavButtons(state) {
+  const validQuestions = getValidQuestions();
+  const page1 = getPageQuestions(validQuestions, 0);
+  const page2 = getPageQuestions(validQuestions, 1);
+
+  const q1Next = $("btn-q1-next");
+  if (q1Next) q1Next.disabled = !isPageComplete(state, page1);
+
+  const q2Finish = $("btn-q2-finish");
+  if (q2Finish) q2Finish.disabled = !isPageComplete(state, page2);
 }
 
-function phaseDetails(phaseKey,sections){
-  const d=el("details",{}, el("summary",{}, PHASE_LABELS_JA[phaseKey]));
-  const order=[["scene","よくあるシーン"],["why","なぜ起きるのか"],["awareness","自覚ポイント"],["recommend","おすすめ"]];
-  for(const [k,label] of order){
-    const sec=sections?.[k]||{};
-    const bullets=Array.isArray(sec.bullets)?sec.bullets:[];
-    const sentences=Array.isArray(sec.sentences)?sec.sentences:[];
-    d.appendChild(el("div",{},
-      el("div",{class:"secTitle"},label),
-      bullets.length?el("ul",{class:"bullets"},...bullets.map(x=>el("li",{},String(x)))):el("div",{class:"small"},""),
-      sentences.length?el("div",{class:"sentences"},sentences.map(String).join(" ")):el("div",{class:"small"},"")
-    ));
+function setNicknameAndImage(nicknameValue, imageMaybe, textEl, imgEl) {
+  if (textEl) textEl.textContent = nicknameValue || "";
+
+  if (!imgEl) return;
+
+  const src = typeof imageMaybe === "string" ? imageMaybe : "";
+  if (src) {
+    imgEl.src = src;
+    imgEl.style.display = "block";
+  } else {
+    imgEl.removeAttribute("src");
+    imgEl.style.display = "none";
   }
-  return d;
 }
 
-function renderResult(root){
-  const r=state.result;
-  if(!r){ root.appendChild(el("section",{class:"card stack"}, el("div",{class:"p"},"結果がありません。"))); return; }
-  const aliasBlock=el("section",{class:"card stack"},
-    el("div",{class:"topRightCode"}, el("div",{class:"saveCode"}, r.saveCode||"")),
-    el("div",{class:"aliasRow"},
-      el("div",{class:"aliasTextBlock"},
-        el("div",{class:"p"},`異名： ${r.nickname||"—"}`),
-        el("div",{class:"p"},`レアリティ： ${r.rarity||"—"}`)
-      ),
-      el("div",{class:"aliasImgWrap"}, el("img",{alt:"",src:"./assets/alias/_default.png"}))
-    )
-  );
-  aliasImgSrc(r.aliasAsset||"").then(src=>{aliasBlock.querySelector("img").src=src;});
-
-  const tbody=el("tbody",{},...r.tableRows.map(row=>el("tr",{}, el("td",{},row.phaseLabel), el("td",{},row.score||""), el("td",{},row.note||""))));
-  const table=el("table",{class:"table"},
-    el("thead",{}, el("tr",{}, el("th",{},"フェーズ"), el("th",{},"スコア"), el("th",{},"備考"))),
-    tbody
-  );
-  const legend=el("div",{style:"display:flex;flex-wrap:wrap;gap:12px;font-size:13px"},
-    ...RARITY_LEGEND_FIXED.map(([k,v])=>el("div",{style:"display:flex;gap:6px"}, el("div",{class:"small"},k), el("div",{},v)))
-  );
-  const details=el("section",{class:"stack"}, ...PHASE_KEYS.map(pk=>phaseDetails(pk, r.phaseTexts.find(x=>x.phaseKey===pk)?.sections||{})));
-
-  root.appendChild(el("div",{class:"stack"},
-    aliasBlock,
-    el("section",{class:"card stack"}, table),
-    el("section",{class:"card stack"}, legend),
-    details,
-    el("section",{class:"card stack"}, el("div",{class:"btnRow"},
-      btn("もう一度診断","primary",()=>{state.answersMap={};state.result=null;state.runMode="manual";save();setScreen(SCREENS.START);} ),
-      btn("結果を保存","secondary",async()=>{ try{await navigator.clipboard.writeText(r.saveCode||"");}catch{} })
-    ))
-  ));
+function buildLegendFixed() {
+  // 本紙：文言・順序・割合固定（ただし本紙内に割合の記載がないため、値は外部から供給される想定）
+  // UIは要素のみを表示する。値が未取得の場合は表示しない。
+  const entries = [
+    { code: "C", pct: "" },
+    { code: "U", pct: "" },
+    { code: "R", pct: "" },
+    { code: "E", pct: "" },
+    { code: "M", pct: "" },
+    { code: "Lg", pct: "" },
+    { code: "Sg", pct: "" },
+  ];
+  return entries;
 }
 
-function render(){
-  const root=$("#app"); if(!root) return; root.innerHTML="";
-  if(state.screen===SCREENS.TITLE) return renderTitle(root);
-  if(state.screen===SCREENS.START) return renderStart(root);
-  if(state.screen===SCREENS.Q1_10) return renderQuestions(root,1,10);
-  if(state.screen===SCREENS.Q11_20) return renderQuestions(root,11,20);
-  if(state.screen===SCREENS.ALIAS) return renderAlias(root);
-  if(state.screen===SCREENS.RESULT) return renderResult(root);
+function safeGet(obj, path) {
+  try {
+    return path.split(".").reduce((acc, k) => (acc == null ? acc : acc[k]), obj);
+  } catch {
+    return undefined;
+  }
 }
 
-document.addEventListener("DOMContentLoaded",()=>{restore(); render();});
+function renderResult(state) {
+  const result = state.result;
+  if (!result || typeof result !== "object") return;
+
+  // saveCode（ラベルなし）
+  const saveCode = typeof result.saveCode === "string" ? result.saveCode : "";
+  const saveEl = $("savecode");
+  if (saveEl) saveEl.textContent = saveCode || "";
+
+  // 異名・画像
+  const nicknameEl = $("nickname");
+  const nicknameImgEl = $("nickname-img");
+  const nicknameOnlyEl = $("nickname-only");
+  const nicknameOnlyImgEl = $("nickname-only-img");
+
+  const nicknameValue = typeof result.nickname === "string" ? result.nickname : "";
+  const nicknameImg = typeof result.nicknameImage === "string"
+    ? result.nicknameImage
+    : (typeof result.nicknameImagePath === "string" ? result.nicknameImagePath : "");
+
+  setNicknameAndImage(nicknameValue, nicknameImg, nicknameEl, nicknameImgEl);
+  setNicknameAndImage(nicknameValue, nicknameImg, nicknameOnlyEl, nicknameOnlyImgEl);
+
+  // rarity
+  const rarityEl = $("rarity");
+  const rarityValue = typeof result.rarity === "string" ? result.rarity : "";
+  if (rarityEl) rarityEl.textContent = rarityValue || "";
+
+  // table
+  const tbody = $("phase-table-body");
+  if (tbody) tbody.innerHTML = "";
+
+  const rows = Array.isArray(result.tableRows) ? result.tableRows : [];
+  if (tbody) {
+    for (const phaseKey of PHASE_KEYS) {
+      // rows 形式は別紙を正とするため、できるだけ仮定しない
+      const row = rows.find((r) => r && (r.phaseKey === phaseKey || r.phase === phaseKey)) || null;
+
+      const tr = document.createElement("tr");
+
+      const tdPhase = document.createElement("td");
+      tdPhase.textContent = PHASE_LABELS_JA[phaseKey] || phaseKey;
+
+      const tdScore = document.createElement("td");
+      const band =
+        (row && clampInt(row.scoreBand, 1, 5)) ??
+        (row && clampInt(row.score, 1, 5)) ??
+        (result.scoreBandByPhase && clampInt(result.scoreBandByPhase[phaseKey], 1, 5)) ??
+        null;
+      tdScore.textContent = band ? (SCORE_LABEL[band] || String(band)) : "";
+
+      const tdNote = document.createElement("td");
+      const note =
+        (row && typeof row.note === "string" ? row.note : "") ||
+        (row && typeof row.remark === "string" ? row.remark : "") ||
+        "";
+      tdNote.textContent = note;
+
+      tr.appendChild(tdPhase);
+      tr.appendChild(tdScore);
+      tr.appendChild(tdNote);
+      tbody.appendChild(tr);
+    }
+  }
+
+  // rarity legend
+  const legend = $("rarity-legend");
+  if (legend) {
+    legend.innerHTML = "";
+    const entries = buildLegendFixed();
+    for (const e of entries) {
+      const item = document.createElement("div");
+      item.className = "legend-item";
+
+      const code = document.createElement("span");
+      code.className = "code";
+      code.textContent = e.code;
+
+      item.appendChild(code);
+
+      if (e.pct) {
+        const pct = document.createElement("span");
+        pct.className = "pct";
+        pct.textContent = e.pct;
+        item.appendChild(pct);
+      }
+
+      legend.appendChild(item);
+    }
+  }
+
+  // phase details (fold)
+  const detailsWrap = $("phase-details");
+  if (detailsWrap) detailsWrap.innerHTML = "";
+
+  const phaseTexts = Array.isArray(result.phaseTexts) ? result.phaseTexts : null;
+
+  // patternKeysByPhase を使う場合（本紙）：未取得なら _default
+  const patternKeysByPhase = result.patternKeysByPhase && typeof result.patternKeysByPhase === "object"
+    ? result.patternKeysByPhase
+    : null;
+
+  for (const phaseKey of PHASE_KEYS) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = PHASE_LABELS_JA[phaseKey] || phaseKey;
+    details.appendChild(summary);
+
+    let sections = null;
+
+    // 1) result.phaseTexts が別紙から返ってきている場合（別紙を正とする）
+    if (phaseTexts) {
+      const found = phaseTexts.find((p) => p && (p.phaseKey === phaseKey || p.phase === phaseKey));
+      if (found && found.sections) sections = found.sections;
+      else if (found && found.scene) sections = found; // 直接 section を持つ形
+    }
+
+    // 2) patternKeysByPhase がある場合は text.js から取得（本紙）
+    if (!sections && patternKeysByPhase) {
+      const pkRaw = patternKeysByPhase[phaseKey];
+      const patternKey = typeof pkRaw === "string" && pkRaw ? pkRaw : "_default";
+      try {
+        sections = getText(phaseKey, patternKey);
+      } catch {
+        sections = null;
+      }
+    }
+
+    if (sections && typeof sections === "object") {
+      const order = [
+        { key: "scene", title: "よくあるシーン" },
+        { key: "why", title: "なぜ起きるのか" },
+        { key: "awareness", title: "自覚ポイント" },
+        { key: "recommend", title: "おすすめ" },
+      ];
+
+      for (const sec of order) {
+        const block = sections[sec.key];
+        if (!block || typeof block !== "object") continue;
+
+        const wrap = document.createElement("div");
+        wrap.className = "section-block";
+
+        const h = document.createElement("p");
+        h.className = "section-title";
+        h.textContent = sec.title;
+
+        wrap.appendChild(h);
+
+        const bullets = Array.isArray(block.bullets) ? block.bullets : [];
+        if (bullets.length) {
+          const ul = document.createElement("ul");
+          ul.className = "section-bullets";
+          for (const b of bullets) {
+            const li = document.createElement("li");
+            li.textContent = String(b);
+            ul.appendChild(li);
+          }
+          wrap.appendChild(ul);
+        }
+
+        const sentences = Array.isArray(block.sentences) ? block.sentences : [];
+        if (sentences.length) {
+          const ul2 = document.createElement("ul");
+          ul2.className = "section-sentences";
+          for (const s of sentences) {
+            const li = document.createElement("li");
+            li.textContent = String(s);
+            ul2.appendChild(li);
+          }
+          wrap.appendChild(ul2);
+        }
+
+        details.appendChild(wrap);
+      }
+    }
+
+    detailsWrap.appendChild(details);
+  }
+}
+
+async function computeResultFromAnswers(state, runMode) {
+  const validQuestions = getValidQuestions();
+  if (validQuestions.length !== 20) return null;
+
+  const answersNormalized = normalizeAnswers(state);
+  if (!answersNormalized) return null;
+
+  // rarity / alias は別紙に委譲
+  let rarity = "";
+  try {
+    const r = calcRarity(answersNormalized);
+    rarity = typeof r === "string" ? r : (r && typeof r.rarity === "string" ? r.rarity : "");
+  } catch {
+    rarity = "";
+  }
+
+  let nickname = "";
+  let nicknameImage = "";
+  try {
+    const a = calcAlias(answersNormalized, rarity);
+    if (typeof a === "string") {
+      nickname = a;
+    } else if (a && typeof a === "object") {
+      if (typeof a.nickname === "string") nickname = a.nickname;
+      else if (typeof a.name === "string") nickname = a.name;
+      if (typeof a.image === "string") nicknameImage = a.image;
+      else if (typeof a.imagePath === "string") nicknameImage = a.imagePath;
+    }
+  } catch {
+    nickname = "";
+    nicknameImage = "";
+  }
+
+  // contrib_table は別紙を正とするため、入力形を固定仮定しない（可能な範囲で呼び分け）
+  let core = null;
+  const meta = { runMode: runMode === "random" ? "random" : "manual" };
+
+  try {
+    core = computeAllPhases({ answersNormalized, meta });
+  } catch {
+    try {
+      core = computeAllPhases({ answers: answersNormalized, meta });
+    } catch {
+      try {
+        core = computeAllPhases(answersNormalized);
+      } catch {
+        core = null;
+      }
+    }
+  }
+
+  // UIは別紙出力を補完しない。UI表示に必要な最小フィールドのみを束ねる。
+  const result = (core && typeof core === "object") ? { ...core } : {};
+
+  // 本紙で出力が必須な項目（別紙側が返していない場合は未表示のまま）
+  if (nickname && typeof result.nickname !== "string") result.nickname = nickname;
+  if (nicknameImage && typeof result.nicknameImage !== "string") result.nicknameImage = nicknameImage;
+  if (rarity && typeof result.rarity !== "string") result.rarity = rarity;
+
+  // phaseKeys は固定でも可（本紙）
+  if (!result.phaseKeys || typeof result.phaseKeys !== "object") {
+    result.phaseKeys = {
+      matching: "matching",
+      firstMeet: "firstMeet",
+      date: "date",
+      relationship: "relationship",
+      marriage: "marriage",
+    };
+  }
+
+  return result;
+}
+
+function bindEvents(state) {
+  // title tap -> start
+  $("screen-title")?.addEventListener("click", () => showScreen(state, "start"));
+
+  // start -> q1
+  $("btn-start")?.addEventListener("click", () => {
+    showScreen(state, "q1");
+    renderQuestions(state, 0, "q1-list");
+    updateNavButtons(state);
+  });
+
+  // random
+  $("btn-random")?.addEventListener("click", async () => {
+    // answers を完全ランダム（1..5）
+    state.answers = [];
+    for (let i = 1; i <= 20; i++) state.answers.push({ qid: `Q${i}`, v: 1 + Math.floor(Math.random() * 5) });
+    saveState(state);
+
+    state.result = await computeResultFromAnswers(state, "random");
+    saveState(state);
+
+    renderResult(state);
+    showScreen(state, "nickname");
+  });
+
+  // q1 back -> start
+  $("btn-q1-back")?.addEventListener("click", () => showScreen(state, "start"));
+
+  // q1 next -> q2
+  $("btn-q1-next")?.addEventListener("click", () => {
+    showScreen(state, "q2");
+    renderQuestions(state, 1, "q2-list");
+    updateNavButtons(state);
+  });
+
+  // q2 back -> q1
+  $("btn-q2-back")?.addEventListener("click", () => {
+    showScreen(state, "q1");
+    renderQuestions(state, 0, "q1-list");
+    updateNavButtons(state);
+  });
+
+  // finish -> compute -> nickname
+  $("btn-q2-finish")?.addEventListener("click", async () => {
+    state.result = await computeResultFromAnswers(state, "manual");
+    saveState(state);
+
+    renderResult(state);
+    showScreen(state, "nickname");
+  });
+
+  // nickname tap -> result
+  $("screen-nickname")?.addEventListener("click", () => {
+    renderResult(state);
+    showScreen(state, "result");
+  });
+
+  // retry -> start (reset answers + result)
+  $("btn-retry")?.addEventListener("click", () => {
+    state.answers = [];
+    state.result = null;
+    saveState(state);
+    showScreen(state, "start");
+  });
+
+  // copy saveCode (near retry)
+  $("btn-copy")?.addEventListener("click", async () => {
+    const code = typeof state.result?.saveCode === "string" ? state.result.saveCode : "";
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      // ignore
+    }
+  });
+
+  // save result
+  $("btn-save")?.addEventListener("click", () => {
+    // 本紙：結果を保存（具体保存形式は未定義）→ 状態保存のみ
+    saveState(state);
+  });
+}
+
+function restoreUI(state) {
+  // 画面復元
+  const screen = typeof state.screen === "string" ? state.screen : "title";
+  showScreen(state, screen);
+
+  // 必要に応じて描画
+  if (screen === "q1") {
+    renderQuestions(state, 0, "q1-list");
+    updateNavButtons(state);
+  } else if (screen === "q2") {
+    renderQuestions(state, 1, "q2-list");
+    updateNavButtons(state);
+  } else if (screen === "nickname" || screen === "result") {
+    renderResult(state);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const restored = loadState();
+  const state = restored ? { ...initState(), ...restored } : initState();
+
+  // answers / result の形だけ軽く整える（補完ではなく破損回避）
+  if (!Array.isArray(state.answers)) state.answers = [];
+  if (state.result && typeof state.result !== "object") state.result = null;
+
+  // 初回描画
+  restoreUI(state);
+  bindEvents(state);
+});

@@ -2,12 +2,140 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>恋愛戦場タイプ診断</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <main id="app" class="app" aria-live="polite"></main>
+  <main id="app" class="app">
+    <!-- 1. 診断タイトル -->
+    <section id="screen-title" class="screen" data-screen="title" aria-label="診断タイトル">
+      <div class="title-wrap">
+        <h1 class="title">恋愛戦場タイプ診断</h1>
+        <p class="subtitle">あなたが下手でも悪いんでもない。逢ってないだけ。</p>
+
+        <div class="loop-lines" aria-hidden="true">
+          <div class="loop-line">会ってる。</div>
+          <div class="loop-line">合ってない。</div>
+          <div class="loop-line">遇ってる。</div>
+          <div class="loop-line">遭ってない。</div>
+        </div>
+
+        <p class="tap-hint">画面をタップ</p>
+      </div>
+    </section>
+
+    <!-- 2. 診断開始＆説明 -->
+    <section id="screen-start" class="screen" data-screen="start" aria-label="診断開始">
+      <div class="start-wrap">
+        <h2 class="start-title">恋愛戦場タイプ診断</h2>
+
+        <button id="btn-start" class="btn primary" type="button">▶ 診断を始める</button>
+
+        <div class="start-desc">
+          <p>これは、あなたの価値や優劣・人間性を決めつける診断ではありません。<br>
+          恋愛の傾向を統計的にモデル化したものであり、正解とは限りません。</p>
+
+          <p>恋愛心理学・行動科学・交際統計など複数研究の傾向から<br>
+          「出会い〜交際〜結婚」フェーズ別のデータを用いて作成しています。</p>
+        </div>
+
+        <div class="start-footer">
+          <p>※この診断は医学的・医療的評価を目的としたものではありません</p>
+        </div>
+
+        <button id="btn-random" class="btn ghost random" type="button">ランダム診断</button>
+      </div>
+    </section>
+
+    <!-- 3. 質問 1〜10 -->
+    <section id="screen-q1" class="screen" data-screen="q1" aria-label="質問 1〜10">
+      <div class="q-wrap">
+        <div class="legend" id="legend-q1">
+          1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる
+        </div>
+
+        <div id="q1-list" class="q-list" aria-live="polite"></div>
+
+        <div class="q-actions">
+          <button id="btn-q1-back" class="btn ghost" type="button">最初へ</button>
+          <button id="btn-q1-next" class="btn primary" type="button">次へ</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 質問 11〜20 -->
+    <section id="screen-q2" class="screen" data-screen="q2" aria-label="質問 11〜20">
+      <div class="q-wrap">
+        <div class="legend" id="legend-q2">
+          1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる
+        </div>
+
+        <div id="q2-list" class="q-list" aria-live="polite"></div>
+
+        <div class="q-actions">
+          <button id="btn-q2-back" class="btn ghost" type="button">戻る</button>
+          <button id="btn-q2-finish" class="btn primary" type="button">結果へ</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 異名画面 -->
+    <section id="screen-nickname" class="screen" data-screen="nickname" aria-label="異名">
+      <div class="nickname-wrap">
+        <div class="nickname-text" id="nickname-only"></div>
+        <div class="nickname-image">
+          <img id="nickname-only-img" alt="" />
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. 診断結果 -->
+    <section id="screen-result" class="screen" data-screen="result" aria-label="診断結果">
+      <div class="result-wrap">
+        <div id="savecode" class="savecode"></div>
+
+        <div class="result-head">
+          <div class="result-nickname">
+            <div class="row">
+              <div class="label">異名：<span id="nickname"></span></div>
+              <div class="img">
+                <img id="nickname-img" alt="" />
+              </div>
+            </div>
+          </div>
+
+          <div class="result-rarity">
+            <div class="label">レアリティ：<span id="rarity"></span></div>
+          </div>
+        </div>
+
+        <div class="result-table-wrap">
+          <table class="result-table">
+            <thead>
+              <tr>
+                <th>フェーズ</th>
+                <th>スコア</th>
+                <th>備考</th>
+              </tr>
+            </thead>
+            <tbody id="phase-table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="rarity-legend" id="rarity-legend" aria-label="レアリティ凡例"></div>
+
+        <div class="phase-details" id="phase-details"></div>
+
+        <div class="result-actions">
+          <button id="btn-retry" class="btn ghost" type="button">もう一度診断</button>
+          <button id="btn-copy" class="btn ghost" type="button">コピー</button>
+          <button id="btn-save" class="btn primary" type="button">結果を保存</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
   <script type="module" src="./app.js"></script>
 </body>
 </html>
