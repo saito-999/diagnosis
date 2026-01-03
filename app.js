@@ -1,5 +1,5 @@
 // app.js
-// 仕様書_本紙_6th_r2.md に従属：状態管理・画面遷移・別紙ロジック呼び出し・結果統合のみ
+// 本紙（仕様書_本紙_6th_r2.md）に従属：状態管理・画面遷移・別紙ロジック呼び出し・結果統合のみ
 // DOMの直接生成は行わない（ui_*.js が render(root, ctx) で生成する）
 
 import { render as renderTitle } from "./ui_title.js";
@@ -16,19 +16,10 @@ import { calcAlias } from "./alias_logic.js";
 import { calcResultKeys } from "./result_key_logic.js";
 import { getText } from "./text.js";
 
-const STORAGE_KEY = "love_diagnosis_beta_state_v1"; // sessionStorage（同一タブのみ）
+const STORAGE_KEY = "love_diagnosis_beta_state_v1"; // 同一タブ内（sessionStorage）
 
 const SCREENS = ["title", "start", "q1_10", "q11_20", "alias", "result"];
-
 const PHASE_ORDER = ["matching", "firstMeet", "date", "relationship", "marriage"];
-
-const PHASE_LABEL = {
-  matching: "出会い（マッチング）",
-  firstMeet: "初対面",
-  date: "デート",
-  relationship: "交際",
-  marriage: "結婚",
-};
 
 const SCORE_LABEL = {
   1: "激弱",
@@ -41,10 +32,15 @@ const SCORE_LABEL = {
 function createInitialState() {
   return {
     screen: "title",
-    answers: [], // { qid: "Q1".."Q20", v: 1..5 }[]
+    // UI入力: { qid:"Q1".."Q20", v:1..5 } の配列
+    answers: [],
     meta: { runMode: "manual" }, // "manual" | "random"
-    result: null, // app.js が統合生成
+    result: null,               // app.js が統合生成
   };
+}
+
+function isValidAnswerValue(v) {
+  return Number.isInteger(v) && v >= 1 && v <= 5;
 }
 
 function sanitizeQid(qid) {
@@ -56,27 +52,14 @@ function sanitizeQid(qid) {
   return `Q${n}`;
 }
 
-function isValidAnswerValue(v) {
-  return Number.isInteger(v) && v >= 1 && v <= 5;
-}
+function setAnswerInState(state, qidRaw, v) {
+  const qid = sanitizeQid(qidRaw);
+  if (!qid) return;
+  if (!isValidAnswerValue(v)) return;
 
-function normalizeAnswersInput(answers) {
-  // 入力: {qid,v}[] → Q1..Q20 の順で number[20] を生成
-  const byQid = new Map();
-  for (const a of answers) {
-    const qid = sanitizeQid(a?.qid);
-    const v = a?.v;
-    if (!qid) continue;
-    if (!isValidAnswerValue(v)) continue;
-    byQid.set(qid, v);
-  }
-  const out = [];
-  for (let i = 1; i <= 20; i++) {
-    const qid = `Q${i}`;
-    if (!byQid.has(qid)) return null; // 未回答がある
-    out.push(byQid.get(qid));
-  }
-  return out;
+  const idx = state.answers.findIndex(a => a.qid === qid);
+  if (idx >= 0) state.answers[idx] = { qid, v };
+  else state.answers.push({ qid, v });
 }
 
 function isAnsweredRange(state, from, to) {
@@ -97,14 +80,23 @@ function answersForRange(state, from, to) {
   return out;
 }
 
-function setAnswer(state, qidRaw, v) {
-  const qid = sanitizeQid(qidRaw);
-  if (!qid) return;
-  if (!isValidAnswerValue(v)) return;
-
-  const idx = state.answers.findIndex(a => a.qid === qid);
-  if (idx >= 0) state.answers[idx] = { qid, v };
-  else state.answers.push({ qid, v });
+function normalizeAnswersInput(answers) {
+  // 本紙: {qid,v}[] を Q1..Q20 昇順に並べ、length=20 の number[] に正規化（未回答があれば null）
+  const byQid = new Map();
+  for (const a of (Array.isArray(answers) ? answers : [])) {
+    const qid = sanitizeQid(a?.qid);
+    const v = a?.v;
+    if (!qid) continue;
+    if (!isValidAnswerValue(v)) continue;
+    byQid.set(qid, v);
+  }
+  const out = [];
+  for (let i = 1; i <= 20; i++) {
+    const qid = `Q${i}`;
+    if (!byQid.has(qid)) return null;
+    out.push(byQid.get(qid));
+  }
+  return out;
 }
 
 async function sha256HexUpper(text) {
@@ -135,53 +127,37 @@ function safeFirstSceneBullet(sections) {
 }
 
 async function computeResult(answersNormalized) {
-  // 1) 寄与表（別紙）
+  // 本紙: result は app.js が統合生成。別紙は result 全体を返さない。
   const contrib = await computeAllPhases({ answers: answersNormalized });
-
-  // 2) スコア（別紙）
   const scoreBandByPhase = contrib?.phase_scores ?? null;
 
-  // 3) レアリティ（別紙）
   const rarityOut = await calcRarity(answersNormalized);
   const rarity = (typeof rarityOut?.rarity === "string") ? rarityOut.rarity : "";
 
-  // 4) 異名（別紙）
   const aliasOut = await calcAlias(answersNormalized, rarity);
   const nickname = (typeof aliasOut?.aliasOverall === "string") ? aliasOut.aliasOverall : "";
   const aliasAssetOverall = (typeof aliasOut?.aliasAssetOverall === "string") ? aliasOut.aliasAssetOverall : "";
 
-  // 5) 結果文章キー（別紙）
   const keysOut = await calcResultKeys({ answers: answersNormalized, contrib });
   const patternKeysByPhase = keysOut?.patternKeysByPhase ?? null;
 
-  // 6) 文章取得（text.js）
   const phaseTexts = [];
   for (const phaseKey of PHASE_ORDER) {
     const pk = safePatternKey(patternKeysByPhase, phaseKey);
-    const patternKeyToUse = pk ?? "_default"; // 本紙: text.js呼び出し時のみフォールバック
+    const patternKeyToUse = pk ?? "_default"; // 本紙: 文章キーのみフォールバック許可（text.js 呼び出し時のみ）
     const sections = getText(phaseKey, patternKeyToUse);
     phaseTexts.push({ phaseKey, patternKey: patternKeyToUse, sections });
   }
 
-  // 7) tableRows（app.js）
   const tableRows = [];
   for (const phaseKey of PHASE_ORDER) {
     const scoreBand = scoreBandByPhase?.[phaseKey];
     const scoreLabel = SCORE_LABEL[scoreBand] ?? "";
     const pt = phaseTexts.find(x => x.phaseKey === phaseKey);
     const note = safeFirstSceneBullet(pt?.sections);
-
-    // 仕様の表記揺れ（phaseLabel/scoreBand）に対応できるよう両方を含める
-    tableRows.push({
-      phaseKey,
-      phaseLabel: PHASE_LABEL[phaseKey] ?? phaseKey,
-      scoreBand,
-      scoreLabel,
-      note,
-    });
+    tableRows.push({ phaseKey, scoreBand, scoreLabel, note });
   }
 
-  // 8) 保存コード（app.js）
   const saveCode = await makeSaveCode(answersNormalized);
 
   return {
@@ -225,14 +201,13 @@ function loadState() {
 }
 
 function saveState(state) {
-  const payload = {
-    screen: state.screen,
-    answers: state.answers,
-    meta: state.meta,
-    result: state.result,
-  };
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      screen: state.screen,
+      answers: state.answers,
+      meta: state.meta,
+      result: state.result,
+    }));
   } catch {
     // ignore
   }
@@ -244,16 +219,48 @@ function clearAll(state) {
   state.result = null;
 }
 
+function getQuestionsByQids(qids) {
+  // 本紙: 質問データは配列形式。qid/text 欠損は UIで表示してはならない。
+  if (!Array.isArray(qids)) return [];
+  const want = qids
+    .map(q => (typeof q === "string" ? q.trim() : ""))
+    .filter(Boolean);
+
+  if (want.length === 0) return [];
+
+  const list = Array.isArray(QUESTIONS) ? QUESTIONS : [];
+  const byId = new Map();
+  for (const item of list) {
+    const qid = sanitizeQid(item?.qid);
+    const text = item?.text;
+    if (!qid) continue;
+    if (typeof text !== "string" || text.trim() === "") continue;
+    byId.set(qid, item);
+  }
+
+  const out = [];
+  for (const qid of want) {
+    const k = sanitizeQid(qid);
+    if (!k) continue;
+    const found = byId.get(k);
+    if (found) out.push(found);
+  }
+  return out;
+}
+
 function createActions(state, rerender) {
   return {
-    // 汎用遷移（ui側の自由度を確保：ただし screen は固定値のみ）
+    // ui側が必要に応じて質問定義を取得するための補助
+    getQuestionsByQids,
+
+    // 汎用遷移（screen は固定文字列のみ）
     go(screen) {
       if (typeof screen !== "string" || !SCREENS.includes(screen)) return;
       state.screen = screen;
       rerender();
     },
 
-    // 本紙: タイトル画面はタップで遷移（ボタン無し）
+    // 本紙: タイトル画面はボタンなし。画面タップで遷移。
     onTitleTap() {
       state.screen = "start";
       rerender();
@@ -274,18 +281,19 @@ function createActions(state, rerender) {
       }
       const answersNormalized = normalizeAnswersInput(state.answers);
       if (!answersNormalized) return;
+
       try {
         state.result = await computeResult(answersNormalized);
         state.screen = "alias";
       } catch {
-        // 算出できない場合は遷移しない（未表示）
+        // 本紙: 補完禁止。算出できない場合は未表示（遷移しない）
       }
       rerender();
     },
 
-    // 質問回答
+    // 質問回答（UIが state を直接書き換えない）
     setAnswer(qid, v) {
-      setAnswer(state, qid, v);
+      setAnswerInState(state, qid, v);
       state.result = null;
       rerender();
     },
@@ -311,16 +319,17 @@ function createActions(state, rerender) {
       state.meta.runMode = "manual";
       const answersNormalized = normalizeAnswersInput(state.answers);
       if (!answersNormalized) return;
+
       try {
         state.result = await computeResult(answersNormalized);
         state.screen = "alias";
       } catch {
-        // 算出できない場合は遷移しない（未表示）
+        // 本紙: 補完禁止。算出できない場合は未表示（遷移しない）
       }
       rerender();
     },
 
-    // 異名画面 → 結果画面（タップ）
+    // 本紙: 異名画面はタップで結果へ
     goResultFromAlias() {
       state.screen = "result";
       rerender();
@@ -346,39 +355,30 @@ function createActions(state, rerender) {
 }
 
 function renderScreen(root, state, actions) {
-  // ui_*.js のみがDOMを生成する。app.jsは root を渡して render を呼ぶだけ。
+  // app.js はDOM生成を行わず、ui_*.js の render(root, ctx) のみを呼ぶ
   const ctx = { state, actions };
 
   switch (state.screen) {
     case "title":
       renderTitle(root, ctx);
       return;
-
     case "start":
       renderStart(root, ctx);
       return;
-
     case "q1_10":
-      // UI表示用に questions / pageAnswers を ctx.state に供給（仕様: 欠損質問はUIで非表示）
-      ctx.state.questions = QUESTIONS;
       ctx.state.pageAnswers = answersForRange(state, 1, 10);
       renderQ1_10(root, ctx);
       return;
-
     case "q11_20":
-      ctx.state.questions = QUESTIONS;
       ctx.state.pageAnswers = answersForRange(state, 11, 20);
       renderQ11_20(root, ctx);
       return;
-
     case "alias":
       renderAlias(root, ctx);
       return;
-
     case "result":
       renderResult(root, ctx);
       return;
-
     default:
       state.screen = "title";
       renderTitle(root, ctx);
@@ -399,7 +399,7 @@ function init() {
 
   actions = createActions(state, rerender);
 
-  // 初期化はDOMContentLoaded後
+  // 本紙: 初期化は DOMContentLoaded 後
   rerender();
 }
 

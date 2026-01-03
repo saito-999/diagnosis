@@ -1,10 +1,13 @@
 /* style.css
-   本紙: 黒系配色は禁止（落ち着いた配色） / 画面要素は ui_*.js で生成 */
+  本紙: 黒系配色は禁止（落ち着いた配色）
+  本紙: DOM生成は ui_*.js 側（app.js は生成しない）
+*/
+
 :root{
   --bg: #f6f2ea;
   --panel: #ffffff;
   --text: #2c2a27;
-  --muted: #6f6a62;
+  --muted: rgba(44, 42, 39, 0.55);
   --line: rgba(44, 42, 39, 0.12);
   --shadow: 0 10px 30px rgba(44, 42, 39, 0.08);
   --radius: 16px;
@@ -21,7 +24,7 @@ body{
 }
 #app{ min-height: 100%; }
 
-/* UI側で任意に使える汎用クラス（要素は増やさない） */
+/* UI側で任意に利用できる汎用クラス（要素は増やさない） */
 .container{
   width: min(980px, 92vw);
   margin: 0 auto;
@@ -44,17 +47,12 @@ body{
   font-size: 15px;
   line-height: 1;
 }
-.btn:hover{
-  border-color: rgba(106, 123, 162, 0.45);
-}
+.btn:hover{ border-color: rgba(106, 123, 162, 0.45); }
 .btnPrimary{
   border-color: rgba(106, 123, 162, 0.55);
   background: rgba(106, 123, 162, 0.12);
 }
-.smallMuted{
-  font-size: 12px;
-  color: rgba(111, 106, 98, 0.75);
-}
+.smallMuted{ font-size: 12px; color: var(--muted); }
 
 @media (max-width: 640px){
   .container{ padding: 14px 0 30px; }
