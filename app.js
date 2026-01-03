@@ -1,5 +1,6 @@
 // app.js
-// 本紙（仕様書_本紙_6th_r2.md）に従属：統合制御のみ（DOM直接生成は禁止）
+// 仕様書_本紙_6th_r2.md に従属：状態管理・画面遷移・別紙ロジック呼び出し・結果統合のみ
+// DOMの直接生成は行わない（ui_*.js が render(root, ctx) で生成する）
 
 import { render as renderTitle } from "./ui_title.js";
 import { render as renderStart } from "./ui_start.js";
@@ -15,7 +16,9 @@ import { calcAlias } from "./alias_logic.js";
 import { calcResultKeys } from "./result_key_logic.js";
 import { getText } from "./text.js";
 
-const STORAGE_KEY = "love_diagnosis_beta_state_v1";
+const STORAGE_KEY = "love_diagnosis_beta_state_v1"; // sessionStorage（同一タブのみ）
+
+const SCREENS = ["title", "start", "q1_10", "q11_20", "alias", "result"];
 
 const PHASE_ORDER = ["matching", "firstMeet", "date", "relationship", "marriage"];
 
@@ -37,9 +40,9 @@ const SCORE_LABEL = {
 
 function createInitialState() {
   return {
-    screen: "title", // title / start / q1_10 / q11_20 / alias / result
+    screen: "title",
     answers: [], // { qid: "Q1".."Q20", v: 1..5 }[]
-    meta: { runMode: "manual" },
+    meta: { runMode: "manual" }, // "manual" | "random"
     result: null, // app.js が統合生成
   };
 }
@@ -53,25 +56,55 @@ function sanitizeQid(qid) {
   return `Q${n}`;
 }
 
+function isValidAnswerValue(v) {
+  return Number.isInteger(v) && v >= 1 && v <= 5;
+}
+
 function normalizeAnswersInput(answers) {
-  // UI入力: {qid,v}[] を qid昇順に並べて、number[20] を作る
+  // 入力: {qid,v}[] → Q1..Q20 の順で number[20] を生成
   const byQid = new Map();
   for (const a of answers) {
     const qid = sanitizeQid(a?.qid);
     const v = a?.v;
     if (!qid) continue;
-    if (!Number.isInteger(v) || v < 1 || v > 5) continue;
+    if (!isValidAnswerValue(v)) continue;
     byQid.set(qid, v);
   }
-
-  // 未回答が存在する場合は null
   const out = [];
   for (let i = 1; i <= 20; i++) {
     const qid = `Q${i}`;
-    if (!byQid.has(qid)) return null;
+    if (!byQid.has(qid)) return null; // 未回答がある
     out.push(byQid.get(qid));
   }
   return out;
+}
+
+function isAnsweredRange(state, from, to) {
+  for (let i = from; i <= to; i++) {
+    const qid = `Q${i}`;
+    if (!state.answers.some(a => a.qid === qid)) return false;
+  }
+  return true;
+}
+
+function answersForRange(state, from, to) {
+  const out = [];
+  for (let i = from; i <= to; i++) {
+    const qid = `Q${i}`;
+    const found = state.answers.find(a => a.qid === qid);
+    if (found) out.push(found);
+  }
+  return out;
+}
+
+function setAnswer(state, qidRaw, v) {
+  const qid = sanitizeQid(qidRaw);
+  if (!qid) return;
+  if (!isValidAnswerValue(v)) return;
+
+  const idx = state.answers.findIndex(a => a.qid === qid);
+  if (idx >= 0) state.answers[idx] = { qid, v };
+  else state.answers.push({ qid, v });
 }
 
 async function sha256HexUpper(text) {
@@ -84,37 +117,24 @@ async function sha256HexUpper(text) {
 }
 
 async function makeSaveCode(answersNormalized) {
-  // answersNormalized を JSON文字列化 → SHA-256 → 先頭10文字（英数字・大文字）
+  // 本紙G-4: answersNormalized を JSON文字列化 → SHA-256 → 先頭10文字（英数字・大文字）
   const json = JSON.stringify(answersNormalized);
   const hexUpper = await sha256HexUpper(json);
   return hexUpper.slice(0, 10);
 }
 
-function safeGetSceneNote(sections) {
-  const bullets = sections?.scene?.bullets;
-  if (!Array.isArray(bullets)) return "";
-  const first = bullets[0];
-  return typeof first === "string" ? first : "";
-}
-
 function safePatternKey(patternKeysByPhase, phaseKey) {
   const k = patternKeysByPhase?.[phaseKey];
-  return typeof k === "string" && k ? k : null;
+  return (typeof k === "string" && k.trim() !== "") ? k : null;
 }
 
-function getTextWithFallback(phaseKey, patternKeyMaybeNull) {
-  // 本紙：キー未取得時は _default を text.js 呼び出し時のみ使用
-  const keyToUse = patternKeyMaybeNull ?? "_default";
-  const sections = getText(phaseKey, keyToUse);
-  return { patternKey: keyToUse, sections };
+function safeFirstSceneBullet(sections) {
+  const bullets = sections?.scene?.bullets;
+  if (!Array.isArray(bullets) || bullets.length === 0) return "";
+  return (typeof bullets[0] === "string") ? bullets[0] : "";
 }
 
-async function computeResultFromState(state) {
-  const answersNormalized = normalizeAnswersInput(state.answers);
-  if (!answersNormalized) {
-    throw new Error("未回答が存在するため算出できません。");
-  }
-
+async function computeResult(answersNormalized) {
   // 1) 寄与表（別紙）
   const contrib = await computeAllPhases({ answers: answersNormalized });
 
@@ -123,15 +143,12 @@ async function computeResultFromState(state) {
 
   // 3) レアリティ（別紙）
   const rarityOut = await calcRarity(answersNormalized);
-  const rarity =
-    typeof rarityOut === "string"
-      ? rarityOut
-      : (rarityOut?.rarity ?? "");
+  const rarity = (typeof rarityOut?.rarity === "string") ? rarityOut.rarity : "";
 
   // 4) 異名（別紙）
   const aliasOut = await calcAlias(answersNormalized, rarity);
-  const nickname = aliasOut?.aliasOverall ?? "";
-  const aliasAssetOverall = aliasOut?.aliasAssetOverall ?? "";
+  const nickname = (typeof aliasOut?.aliasOverall === "string") ? aliasOut.aliasOverall : "";
+  const aliasAssetOverall = (typeof aliasOut?.aliasAssetOverall === "string") ? aliasOut.aliasAssetOverall : "";
 
   // 5) 結果文章キー（別紙）
   const keysOut = await calcResultKeys({ answers: answersNormalized, contrib });
@@ -141,17 +158,20 @@ async function computeResultFromState(state) {
   const phaseTexts = [];
   for (const phaseKey of PHASE_ORDER) {
     const pk = safePatternKey(patternKeysByPhase, phaseKey);
-    const { patternKey, sections } = getTextWithFallback(phaseKey, pk);
-    phaseTexts.push({ phaseKey, patternKey, sections });
+    const patternKeyToUse = pk ?? "_default"; // 本紙: text.js呼び出し時のみフォールバック
+    const sections = getText(phaseKey, patternKeyToUse);
+    phaseTexts.push({ phaseKey, patternKey: patternKeyToUse, sections });
   }
 
-  // 7) 結果表用データ（app.js）
+  // 7) tableRows（app.js）
   const tableRows = [];
   for (const phaseKey of PHASE_ORDER) {
     const scoreBand = scoreBandByPhase?.[phaseKey];
     const scoreLabel = SCORE_LABEL[scoreBand] ?? "";
     const pt = phaseTexts.find(x => x.phaseKey === phaseKey);
-    const note = safeGetSceneNote(pt?.sections);
+    const note = safeFirstSceneBullet(pt?.sections);
+
+    // 仕様の表記揺れ（phaseLabel/scoreBand）に対応できるよう両方を含める
     tableRows.push({
       phaseKey,
       phaseLabel: PHASE_LABEL[phaseKey] ?? phaseKey,
@@ -167,8 +187,8 @@ async function computeResultFromState(state) {
   return {
     saveCode,
     nickname,
-    aliasAssetOverall,
     rarity,
+    aliasAssetOverall,
     scoreBandByPhase,
     patternKeysByPhase,
     phaseTexts,
@@ -178,29 +198,25 @@ async function computeResultFromState(state) {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialState();
     const parsed = JSON.parse(raw);
     const s = createInitialState();
 
     const screen = parsed?.screen;
-    if (typeof screen === "string") s.screen = screen;
+    if (typeof screen === "string" && SCREENS.includes(screen)) s.screen = screen;
 
     const answers = parsed?.answers;
     if (Array.isArray(answers)) {
       s.answers = answers
         .map(a => ({ qid: sanitizeQid(a?.qid), v: a?.v }))
-        .filter(a => a.qid && Number.isInteger(a.v) && a.v >= 1 && a.v <= 5);
+        .filter(a => a.qid && isValidAnswerValue(a.v));
     }
 
     const runMode = parsed?.meta?.runMode;
-    if (runMode === "manual" || runMode === "random") {
-      s.meta.runMode = runMode;
-    }
+    if (runMode === "manual" || runMode === "random") s.meta.runMode = runMode;
 
-    if (parsed?.result && typeof parsed.result === "object") {
-      s.result = parsed.result;
-    }
+    if (parsed?.result && typeof parsed.result === "object") s.result = parsed.result;
 
     return s;
   } catch {
@@ -216,39 +232,10 @@ function saveState(state) {
     result: state.result,
   };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
-}
-
-function answersForRange(state, from, to) {
-  const out = [];
-  for (let i = from; i <= to; i++) {
-    const qid = `Q${i}`;
-    const found = state.answers.find(a => a.qid === qid);
-    if (found) out.push(found);
-  }
-  return out;
-}
-
-function isAnsweredRange(state, from, to) {
-  for (let i = from; i <= to; i++) {
-    const qid = `Q${i}`;
-    const found = state.answers.find(a => a.qid === qid);
-    if (!found) return false;
-  }
-  return true;
-}
-
-function setAnswer(state, qidRaw, v) {
-  const qid = sanitizeQid(qidRaw);
-  if (!qid) return;
-  if (!Number.isInteger(v) || v < 1 || v > 5) return;
-
-  const idx = state.answers.findIndex(a => a.qid === qid);
-  if (idx >= 0) state.answers[idx] = { qid, v };
-  else state.answers.push({ qid, v });
 }
 
 function clearAll(state) {
@@ -259,63 +246,96 @@ function clearAll(state) {
 
 function createActions(state, rerender) {
   return {
-    goTitle() { state.screen = "title"; rerender(); },
-    goStart() { state.screen = "start"; rerender(); },
-    goQ1_10() { state.screen = "q1_10"; rerender(); },
-    goQ11_20() { state.screen = "q11_20"; rerender(); },
-    goAlias() { state.screen = "alias"; rerender(); },
-    goResult() { state.screen = "result"; rerender(); },
-    restart() {
-      clearAll(state);
+    // 汎用遷移（ui側の自由度を確保：ただし screen は固定値のみ）
+    go(screen) {
+      if (typeof screen !== "string" || !SCREENS.includes(screen)) return;
+      state.screen = screen;
+      rerender();
+    },
+
+    // 本紙: タイトル画面はタップで遷移（ボタン無し）
+    onTitleTap() {
       state.screen = "start";
       rerender();
     },
+
+    // 開始画面
+    startManual() {
+      state.meta.runMode = "manual";
+      state.screen = "q1_10";
+      rerender();
+    },
+
+    async startRandom() {
+      clearAll(state);
+      state.meta.runMode = "random";
+      for (let i = 1; i <= 20; i++) {
+        state.answers.push({ qid: `Q${i}`, v: 1 + Math.floor(Math.random() * 5) });
+      }
+      const answersNormalized = normalizeAnswersInput(state.answers);
+      if (!answersNormalized) return;
+      try {
+        state.result = await computeResult(answersNormalized);
+        state.screen = "alias";
+      } catch {
+        // 算出できない場合は遷移しない（未表示）
+      }
+      rerender();
+    },
+
+    // 質問回答
     setAnswer(qid, v) {
       setAnswer(state, qid, v);
       state.result = null;
       rerender();
     },
+
     nextFromQ1_10() {
       if (!isAnsweredRange(state, 1, 10)) return;
       state.screen = "q11_20";
       rerender();
     },
-    backToStart() { state.screen = "start"; rerender(); },
-    backToQ1_10() { state.screen = "q1_10"; rerender(); },
 
-    async finishAndCompute(runMode) {
+    backToQ1_10() {
+      state.screen = "q1_10";
+      rerender();
+    },
+
+    backToStart() {
+      state.screen = "start";
+      rerender();
+    },
+
+    async finishManual() {
       if (!isAnsweredRange(state, 11, 20)) return;
-      state.meta.runMode = runMode === "random" ? "random" : "manual";
+      state.meta.runMode = "manual";
+      const answersNormalized = normalizeAnswersInput(state.answers);
+      if (!answersNormalized) return;
       try {
-        state.result = await computeResultFromState(state);
+        state.result = await computeResult(answersNormalized);
         state.screen = "alias";
       } catch {
-        // 算出できない場合は画面遷移しない（未表示）
+        // 算出できない場合は遷移しない（未表示）
       }
       rerender();
     },
 
-    async runRandomDiagnosis() {
-      // 本紙：ランダムでも同一入力構造・同一評価関数を通す
+    // 異名画面 → 結果画面（タップ）
+    goResultFromAlias() {
+      state.screen = "result";
+      rerender();
+    },
+
+    // 結果画面
+    restart() {
       clearAll(state);
-      state.meta.runMode = "random";
-      for (let i = 1; i <= 20; i++) {
-        const qid = `Q${i}`;
-        const v = 1 + Math.floor(Math.random() * 5);
-        state.answers.push({ qid, v });
-      }
-      try {
-        state.result = await computeResultFromState(state);
-        state.screen = "alias";
-      } catch {
-        // ignore
-      }
+      state.screen = "start";
       rerender();
     },
 
     async copySaveCode() {
       const code = state.result?.saveCode;
-      if (typeof code !== "string" || !code) return;
+      if (typeof code !== "string" || code.trim() === "") return;
       try {
         await navigator.clipboard.writeText(code);
       } catch {
@@ -326,6 +346,7 @@ function createActions(state, rerender) {
 }
 
 function renderScreen(root, state, actions) {
+  // ui_*.js のみがDOMを生成する。app.jsは root を渡して render を呼ぶだけ。
   const ctx = { state, actions };
 
   switch (state.screen) {
@@ -338,6 +359,7 @@ function renderScreen(root, state, actions) {
       return;
 
     case "q1_10":
+      // UI表示用に questions / pageAnswers を ctx.state に供給（仕様: 欠損質問はUIで非表示）
       ctx.state.questions = QUESTIONS;
       ctx.state.pageAnswers = answersForRange(state, 1, 10);
       renderQ1_10(root, ctx);
@@ -377,6 +399,7 @@ function init() {
 
   actions = createActions(state, rerender);
 
+  // 初期化はDOMContentLoaded後
   rerender();
 }
 

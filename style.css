@@ -1,14 +1,14 @@
 /* style.css
-   本紙に「見た目の詳細」は未定義のため、落ち着いた配色で実装（黒系は避ける） */
-
+   本紙: 黒系配色は禁止（落ち着いた配色） / 画面要素は ui_*.js で生成 */
 :root{
   --bg: #f6f2ea;
   --panel: #ffffff;
-  --text: #2b2a28;
+  --text: #2c2a27;
   --muted: #6f6a62;
-  --line: rgba(43, 42, 40, 0.10);
-  --shadow: 0 10px 30px rgba(43, 42, 40, 0.08);
+  --line: rgba(44, 42, 39, 0.12);
+  --shadow: 0 10px 30px rgba(44, 42, 39, 0.08);
   --radius: 16px;
+  --accent: #6a7ba2;
 }
 
 *{ box-sizing: border-box; }
@@ -19,14 +19,13 @@ body{
   background: var(--bg);
   color: var(--text);
 }
-
 #app{ min-height: 100%; }
 
-/* Utility classes（UI側で任意に利用可。CSSはUI要素を増やさない） */
+/* UI側で任意に使える汎用クラス（要素は増やさない） */
 .container{
   width: min(980px, 92vw);
   margin: 0 auto;
-  padding: 20px 0 40px;
+  padding: 18px 0 36px;
 }
 .card{
   background: var(--panel);
@@ -34,13 +33,6 @@ body{
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
-.h1{ font-size: 28px; line-height: 1.2; margin: 0; }
-.h2{ font-size: 20px; line-height: 1.3; margin: 0; }
-.p{ font-size: 15px; line-height: 1.7; color: var(--muted); margin: 0; }
-
-.row{ display: flex; gap: 16px; align-items: center; }
-.col{ display: flex; flex-direction: column; gap: 12px; }
-
 .btn{
   appearance: none;
   border: 1px solid var(--line);
@@ -51,26 +43,19 @@ body{
   cursor: pointer;
   font-size: 15px;
   line-height: 1;
-  transition: transform 80ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 .btn:hover{
   border-color: rgba(106, 123, 162, 0.45);
-  box-shadow: 0 8px 18px rgba(106, 123, 162, 0.14);
 }
-.btn:active{ transform: translateY(1px); }
-
 .btnPrimary{
   border-color: rgba(106, 123, 162, 0.55);
   background: rgba(106, 123, 162, 0.12);
 }
-
-.divider{
-  height: 1px;
-  background: var(--line);
-  width: 100%;
+.smallMuted{
+  font-size: 12px;
+  color: rgba(111, 106, 98, 0.75);
 }
 
 @media (max-width: 640px){
-  .row{ flex-direction: column; align-items: stretch; }
-  .h1{ font-size: 24px; }
+  .container{ padding: 14px 0 30px; }
 }
