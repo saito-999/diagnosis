@@ -1,3 +1,6 @@
+// app.js
+// 本紙（仕様書_本紙_6th_r2.md）に従属：統合制御のみ（DOM直接生成は禁止）
+
 import { render as renderTitle } from "./ui_title.js";
 import { render as renderStart } from "./ui_start.js";
 import { render as renderQ1_10 } from "./ui_questions_1_10.js";
@@ -9,14 +12,15 @@ import { QUESTIONS } from "./data_questions.js";
 import { computeAllPhases } from "./contrib_table.js";
 import { calcRarity } from "./rarity_logic.js";
 import { calcAlias } from "./alias_logic.js";
-import { getText } from "./text.js";
 import { calcResultKeys } from "./result_key_logic.js";
+import { getText } from "./text.js";
 
 const STORAGE_KEY = "love_diagnosis_beta_state_v1";
 
 const PHASE_ORDER = ["matching", "firstMeet", "date", "relationship", "marriage"];
+
 const PHASE_LABEL = {
-  matching: "出会い",
+  matching: "出会い（マッチング）",
   firstMeet: "初対面",
   date: "デート",
   relationship: "交際",
@@ -31,292 +35,349 @@ const SCORE_LABEL = {
   5: "激強",
 };
 
-const SCREEN_RENDERERS = {
-  title: renderTitle,
-  start: renderStart,
-  q1_10: renderQ1_10,
-  q11_20: renderQ11_20,
-  alias: renderAlias,
-  result: renderResult,
-};
+function createInitialState() {
+  return {
+    screen: "title", // title / start / q1_10 / q11_20 / alias / result
+    answers: [], // { qid: "Q1".."Q20", v: 1..5 }[]
+    meta: { runMode: "manual" },
+    result: null, // app.js が統合生成
+  };
+}
 
-const initialState = () => ({
-  screen: "title",
-  answers: [], // { qid, v }
-  result: null,
-  runMode: "manual",
-  scrollByScreen: {}, // { [screen]: number }
-});
+function sanitizeQid(qid) {
+  if (typeof qid !== "string") return null;
+  const m = qid.match(/^Q(\d{1,2})$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isInteger(n) || n < 1 || n > 20) return null;
+  return `Q${n}`;
+}
 
-let state = initialState();
-
-function loadState() {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return;
-    if (!parsed.screen || !(parsed.screen in SCREEN_RENDERERS)) return;
-    state = {
-      ...initialState(),
-      ...parsed,
-      scrollByScreen: parsed.scrollByScreen && typeof parsed.scrollByScreen === "object" ? parsed.scrollByScreen : {},
-    };
-  } catch {
-    // ignore
+function normalizeAnswersInput(answers) {
+  // UI入力: {qid,v}[] を qid昇順に並べて、number[20] を作る
+  const byQid = new Map();
+  for (const a of answers) {
+    const qid = sanitizeQid(a?.qid);
+    const v = a?.v;
+    if (!qid) continue;
+    if (!Number.isInteger(v) || v < 1 || v > 5) continue;
+    byQid.set(qid, v);
   }
-}
 
-function persistState() {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
-}
-
-function saveScroll() {
-  state.scrollByScreen[state.screen] = window.scrollY || 0;
-  persistState();
-}
-
-function restoreScroll() {
-  const y = state.scrollByScreen?.[state.screen];
-  if (typeof y === "number") {
-    window.scrollTo(0, y);
-  } else {
-    window.scrollTo(0, 0);
-  }
-}
-
-function setState(patch) {
-  state = { ...state, ...patch };
-  persistState();
-}
-
-function setAnswer(qid, v) {
-  if (!qid) return;
-  if (!Number.isInteger(v) || v < 1 || v > 5) return;
-
-  const next = state.answers.slice();
-  const idx = next.findIndex(a => a && a.qid === qid);
-  if (idx >= 0) next[idx] = { qid, v };
-  else next.push({ qid, v });
-
-  setState({ answers: next });
-}
-
-function getAnswerValue(qid) {
-  const hit = state.answers.find(a => a && a.qid === qid);
-  return hit ? hit.v : null;
-}
-
-function isAllAnswered(qids) {
-  for (const qid of qids) {
-    const v = getAnswerValue(qid);
-    if (!Number.isInteger(v)) return false;
-  }
-  return true;
-}
-
-function normalizeAnswers() {
-  // { qid, v } (20) -> number[20] ordered Q1..Q20
-  const map = new Map(state.answers.filter(Boolean).map(a => [a.qid, a.v]));
-  const arr = [];
-  for (let i = 1; i <= 20; i += 1) {
+  // 未回答が存在する場合は null
+  const out = [];
+  for (let i = 1; i <= 20; i++) {
     const qid = `Q${i}`;
-    const v = map.get(qid);
-    if (!Number.isInteger(v) || v < 1 || v > 5) return null;
-    arr.push(v);
+    if (!byQid.has(qid)) return null;
+    out.push(byQid.get(qid));
   }
-  return arr;
+  return out;
 }
 
-async function makeSaveCodeFromAnswersNormalized(answersNormalized) {
-  // Spec: answersNormalized を JSON 文字列化 → SHA-256 → 先頭10文字を英数字（大文字）
-  // 実装: SHA-256 bytes を BigInt 化 → base36 → 先頭10文字（不足は0埋め）
+async function sha256HexUpper(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  const bytes = new Uint8Array(buf);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex.toUpperCase();
+}
+
+async function makeSaveCode(answersNormalized) {
+  // answersNormalized を JSON文字列化 → SHA-256 → 先頭10文字（英数字・大文字）
   const json = JSON.stringify(answersNormalized);
-  const bytes = new TextEncoder().encode(json);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
-  const bi = BigInt("0x" + hex);
-  const base36 = bi.toString(36).toUpperCase();
-  const padded = base36.padStart(10, "0");
-  return padded.slice(0, 10);
+  const hexUpper = await sha256HexUpper(json);
+  return hexUpper.slice(0, 10);
 }
 
-function getQuestionsByQids(qids) {
-  const byId = new Map(Array.isArray(QUESTIONS) ? QUESTIONS.map(q => [q?.qid, q]) : []);
-  return qids.map(qid => byId.get(qid)).filter(Boolean);
+function safeGetSceneNote(sections) {
+  const bullets = sections?.scene?.bullets;
+  if (!Array.isArray(bullets)) return "";
+  const first = bullets[0];
+  return typeof first === "string" ? first : "";
 }
 
-function phaseLabel(phaseKey) {
-  return PHASE_LABEL[phaseKey] ?? String(phaseKey ?? "");
+function safePatternKey(patternKeysByPhase, phaseKey) {
+  const k = patternKeysByPhase?.[phaseKey];
+  return typeof k === "string" && k ? k : null;
 }
 
-function getPhaseOrder() {
-  return PHASE_ORDER.slice();
+function getTextWithFallback(phaseKey, patternKeyMaybeNull) {
+  // 本紙：キー未取得時は _default を text.js 呼び出し時のみ使用
+  const keyToUse = patternKeyMaybeNull ?? "_default";
+  const sections = getText(phaseKey, keyToUse);
+  return { patternKey: keyToUse, sections };
 }
 
-async function computeResult() {
-  const answersNormalized = normalizeAnswers();
-  if (!answersNormalized) return null;
+async function computeResultFromState(state) {
+  const answersNormalized = normalizeAnswersInput(state.answers);
+  if (!answersNormalized) {
+    throw new Error("未回答が存在するため算出できません。");
+  }
 
-  // contrib / scores
-  const contrib = computeAllPhases({ answers: answersNormalized });
+  // 1) 寄与表（別紙）
+  const contrib = await computeAllPhases({ answers: answersNormalized });
+
+  // 2) スコア（別紙）
   const scoreBandByPhase = contrib?.phase_scores ?? null;
 
-  // pattern keys
-  const keysOut = calcResultKeys({ answers: answersNormalized, contrib });
+  // 3) レアリティ（別紙）
+  const rarityOut = await calcRarity(answersNormalized);
+  const rarity =
+    typeof rarityOut === "string"
+      ? rarityOut
+      : (rarityOut?.rarity ?? "");
+
+  // 4) 異名（別紙）
+  const aliasOut = await calcAlias(answersNormalized, rarity);
+  const nickname = aliasOut?.aliasOverall ?? "";
+  const aliasAssetOverall = aliasOut?.aliasAssetOverall ?? "";
+
+  // 5) 結果文章キー（別紙）
+  const keysOut = await calcResultKeys({ answers: answersNormalized, contrib });
   const patternKeysByPhase = keysOut?.patternKeysByPhase ?? null;
 
-  // rarity
-  const rarityOut = calcRarity(answersNormalized);
-  const rarity = typeof rarityOut === "string" ? rarityOut : (rarityOut?.rarity ?? "");
+  // 6) 文章取得（text.js）
+  const phaseTexts = [];
+  for (const phaseKey of PHASE_ORDER) {
+    const pk = safePatternKey(patternKeysByPhase, phaseKey);
+    const { patternKey, sections } = getTextWithFallback(phaseKey, pk);
+    phaseTexts.push({ phaseKey, patternKey, sections });
+  }
 
-  // alias (nickname + asset)
-  const aliasOut = calcAlias(answersNormalized, rarity);
-  const nickname = aliasOut?.aliasOverall ?? "";
-  const aliasAssetOverall = aliasOut?.aliasAssetOverall ?? "_default.png";
-
-  // phaseTexts (fixed order)
-  const phaseTexts = PHASE_ORDER.map((phaseKey) => {
-    const rawKey = patternKeysByPhase?.[phaseKey];
-    const keyForText = (typeof rawKey === "string" && rawKey.trim()) ? rawKey.trim() : "_default";
-    const textOut = getText(phaseKey, keyForText);
-    const sections = textOut?.sections ?? textOut ?? {};
-    return { phaseKey, patternKey: keyForText, sections };
-  });
-
-  // tableRows
-  const tableRows = PHASE_ORDER.map((phaseKey) => {
-    const band = scoreBandByPhase?.[phaseKey];
-    const scoreBand = Number.isInteger(band) ? band : null;
-    const scoreLabel = scoreBand ? (SCORE_LABEL[scoreBand] ?? "") : "";
-    const scene = phaseTexts.find(p => p.phaseKey === phaseKey)?.sections?.scene ?? null;
-    const note = Array.isArray(scene?.bullets) && scene.bullets.length ? String(scene.bullets[0]) : "";
-    return {
+  // 7) 結果表用データ（app.js）
+  const tableRows = [];
+  for (const phaseKey of PHASE_ORDER) {
+    const scoreBand = scoreBandByPhase?.[phaseKey];
+    const scoreLabel = SCORE_LABEL[scoreBand] ?? "";
+    const pt = phaseTexts.find(x => x.phaseKey === phaseKey);
+    const note = safeGetSceneNote(pt?.sections);
+    tableRows.push({
       phaseKey,
-      phaseLabel: phaseLabel(phaseKey),
-      scoreBand: scoreBand ?? null,
+      phaseLabel: PHASE_LABEL[phaseKey] ?? phaseKey,
+      scoreBand,
       scoreLabel,
       note,
-    };
-  });
+    });
+  }
 
-  const saveCode = await makeSaveCodeFromAnswersNormalized(answersNormalized);
+  // 8) 保存コード（app.js）
+  const saveCode = await makeSaveCode(answersNormalized);
 
   return {
     saveCode,
     nickname,
     aliasAssetOverall,
     rarity,
-    scoreBandByPhase: scoreBandByPhase ?? {},
-    patternKeysByPhase: patternKeysByPhase ?? {},
+    scoreBandByPhase,
+    patternKeysByPhase,
     phaseTexts,
     tableRows,
-    debug: contrib?.debug ?? undefined,
   };
 }
 
-async function runRandom() {
-  const answers = [];
-  for (let i = 1; i <= 20; i += 1) {
-    const qid = `Q${i}`;
-    const v = 1 + Math.floor(Math.random() * 5);
-    answers.push({ qid, v });
-  }
-  setState({ answers, runMode: "random" });
-  const result = await computeResult();
-  setState({ result });
-  go("alias");
-}
-
-async function computeResultAndGoAlias() {
-  const result = await computeResult();
-  setState({ result });
-  go("alias");
-}
-
-function resetToStart() {
-  setState({ ...initialState(), screen: "start" });
-  render();
-}
-
-async function copySaveCode() {
-  const code = state?.result?.saveCode ?? "";
-  if (!code) return;
+function loadState() {
   try {
-    await navigator.clipboard.writeText(code);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return createInitialState();
+    const parsed = JSON.parse(raw);
+    const s = createInitialState();
+
+    const screen = parsed?.screen;
+    if (typeof screen === "string") s.screen = screen;
+
+    const answers = parsed?.answers;
+    if (Array.isArray(answers)) {
+      s.answers = answers
+        .map(a => ({ qid: sanitizeQid(a?.qid), v: a?.v }))
+        .filter(a => a.qid && Number.isInteger(a.v) && a.v >= 1 && a.v <= 5);
+    }
+
+    const runMode = parsed?.meta?.runMode;
+    if (runMode === "manual" || runMode === "random") {
+      s.meta.runMode = runMode;
+    }
+
+    if (parsed?.result && typeof parsed.result === "object") {
+      s.result = parsed.result;
+    }
+
+    return s;
+  } catch {
+    return createInitialState();
+  }
+}
+
+function saveState(state) {
+  const payload = {
+    screen: state.screen,
+    answers: state.answers,
+    meta: state.meta,
+    result: state.result,
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
 }
 
-async function saveResult() {
-  const r = state?.result;
-  if (!r) return;
-  const blob = new Blob([JSON.stringify(r, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `result_${r.saveCode || "result"}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(a.href);
+function answersForRange(state, from, to) {
+  const out = [];
+  for (let i = from; i <= to; i++) {
+    const qid = `Q${i}`;
+    const found = state.answers.find(a => a.qid === qid);
+    if (found) out.push(found);
+  }
+  return out;
 }
 
-function go(screen) {
-  if (!(screen in SCREEN_RENDERERS)) return;
-  saveScroll();
-  setState({ screen });
-  render();
+function isAnsweredRange(state, from, to) {
+  for (let i = from; i <= to; i++) {
+    const qid = `Q${i}`;
+    const found = state.answers.find(a => a.qid === qid);
+    if (!found) return false;
+  }
+  return true;
 }
 
-function render() {
+function setAnswer(state, qidRaw, v) {
+  const qid = sanitizeQid(qidRaw);
+  if (!qid) return;
+  if (!Number.isInteger(v) || v < 1 || v > 5) return;
+
+  const idx = state.answers.findIndex(a => a.qid === qid);
+  if (idx >= 0) state.answers[idx] = { qid, v };
+  else state.answers.push({ qid, v });
+}
+
+function clearAll(state) {
+  state.answers = [];
+  state.meta = { runMode: "manual" };
+  state.result = null;
+}
+
+function createActions(state, rerender) {
+  return {
+    goTitle() { state.screen = "title"; rerender(); },
+    goStart() { state.screen = "start"; rerender(); },
+    goQ1_10() { state.screen = "q1_10"; rerender(); },
+    goQ11_20() { state.screen = "q11_20"; rerender(); },
+    goAlias() { state.screen = "alias"; rerender(); },
+    goResult() { state.screen = "result"; rerender(); },
+    restart() {
+      clearAll(state);
+      state.screen = "start";
+      rerender();
+    },
+    setAnswer(qid, v) {
+      setAnswer(state, qid, v);
+      state.result = null;
+      rerender();
+    },
+    nextFromQ1_10() {
+      if (!isAnsweredRange(state, 1, 10)) return;
+      state.screen = "q11_20";
+      rerender();
+    },
+    backToStart() { state.screen = "start"; rerender(); },
+    backToQ1_10() { state.screen = "q1_10"; rerender(); },
+
+    async finishAndCompute(runMode) {
+      if (!isAnsweredRange(state, 11, 20)) return;
+      state.meta.runMode = runMode === "random" ? "random" : "manual";
+      try {
+        state.result = await computeResultFromState(state);
+        state.screen = "alias";
+      } catch {
+        // 算出できない場合は画面遷移しない（未表示）
+      }
+      rerender();
+    },
+
+    async runRandomDiagnosis() {
+      // 本紙：ランダムでも同一入力構造・同一評価関数を通す
+      clearAll(state);
+      state.meta.runMode = "random";
+      for (let i = 1; i <= 20; i++) {
+        const qid = `Q${i}`;
+        const v = 1 + Math.floor(Math.random() * 5);
+        state.answers.push({ qid, v });
+      }
+      try {
+        state.result = await computeResultFromState(state);
+        state.screen = "alias";
+      } catch {
+        // ignore
+      }
+      rerender();
+    },
+
+    async copySaveCode() {
+      const code = state.result?.saveCode;
+      if (typeof code !== "string" || !code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+      } catch {
+        // ignore
+      }
+    },
+  };
+}
+
+function renderScreen(root, state, actions) {
+  const ctx = { state, actions };
+
+  switch (state.screen) {
+    case "title":
+      renderTitle(root, ctx);
+      return;
+
+    case "start":
+      renderStart(root, ctx);
+      return;
+
+    case "q1_10":
+      ctx.state.questions = QUESTIONS;
+      ctx.state.pageAnswers = answersForRange(state, 1, 10);
+      renderQ1_10(root, ctx);
+      return;
+
+    case "q11_20":
+      ctx.state.questions = QUESTIONS;
+      ctx.state.pageAnswers = answersForRange(state, 11, 20);
+      renderQ11_20(root, ctx);
+      return;
+
+    case "alias":
+      renderAlias(root, ctx);
+      return;
+
+    case "result":
+      renderResult(root, ctx);
+      return;
+
+    default:
+      state.screen = "title";
+      renderTitle(root, ctx);
+  }
+}
+
+function init() {
   const root = document.getElementById("app");
   if (!root) return;
 
-  const renderer = SCREEN_RENDERERS[state.screen] ?? renderTitle;
+  const state = loadState();
 
-  const ctx = Object.freeze({
-    state: Object.freeze(state),
-    actions: Object.freeze({
-      go,
-      setAnswer,
-      getAnswerValue,
-      isAllAnswered,
-      getQuestionsByQids,
-      computeResultAndGoAlias,
-      runRandom,
-      phaseLabel,
-      getPhaseOrder,
-      resetToStart,
-      copySaveCode,
-      saveResult,
-    }),
-  });
+  let actions;
+  const rerender = () => {
+    saveState(state);
+    renderScreen(root, state, actions);
+  };
 
-  renderer(root, ctx);
+  actions = createActions(state, rerender);
 
-  requestAnimationFrame(() => {
-    restoreScroll();
-    persistState();
-  });
+  rerender();
 }
 
-window.addEventListener("scroll", () => {
-  // スクロール位置は画面ごとに保存
-  // 高頻度で保存しすぎないよう軽いデバウンス
-  if (saveScroll._t) window.clearTimeout(saveScroll._t);
-  saveScroll._t = window.setTimeout(() => saveScroll(), 120);
-});
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") saveScroll();
-});
-
-document.addEventListener("DOMContentLoaded", () => {
-  loadState();
-  render();
-});
+document.addEventListener("DOMContentLoaded", init);
