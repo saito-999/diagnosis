@@ -1,32 +1,38 @@
+/* ui_alias.js
+ * export: render(root, ctx) ÇÃÇ›
+ */
 export function render(root, ctx) {
-  const { state, actions } = ctx;
-  const nickname = state?.result?.nickname ?? "";
-  const asset = state?.result?.aliasAssetOverall ?? "_default.png";
+  if (!(root instanceof HTMLElement)) return;
+  const { state, actions } = ctx || {};
 
-  root.innerHTML = `
-    <div class="container">
-      <div class="card" id="aliasCard" style="cursor:pointer;">
-        <div class="grid2">
-          <div>
-            <div class="h1" style="margin-bottom:0;">${escapeHtml(nickname)}</div>
-          </div>
-          <div>
-            <img class="aliasImg" alt="" src="./assets/alias/${encodeURI(asset)}" />
-          </div>
-        </div>
-        <div class="small" style="margin-top:14px;">ÁîªÈù¢„Çí„Çø„ÉÉ„Éó„Åô„Çã„Å®ÈÄ≤„Åø„Åæ„Åô</div>
-      </div>
-    </div>
-  `;
+  root.innerHTML = "";
 
-  root.querySelector("#aliasCard")?.addEventListener("click", () => actions.go("result"));
+  const wrap = document.createElement("div");
+  wrap.className = "screen screen-alias";
 
-  function escapeHtml(s){
-    return String(s)
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
+  const nickname = state && state.result && typeof state.result.nickname === "string" ? state.result.nickname : "";
+
+  const text = document.createElement("div");
+  text.className = "alias-text";
+  text.textContent = nickname;
+
+  wrap.appendChild(text);
+
+  const imgSrc =
+    state && state.result && typeof state.result.aliasImage === "string" ? state.result.aliasImage : null;
+
+  if (imgSrc) {
+    const img = document.createElement("img");
+    img.className = "alias-image";
+    img.alt = "";
+    img.src = imgSrc;
+    wrap.appendChild(img);
   }
+
+  root.appendChild(wrap);
+
+  // âÊñ ëSëÃÉ^ÉbÉvÇ≈ result
+  root.onclick = () => {
+    if (actions && typeof actions.go === "function") actions.go("result");
+  };
 }

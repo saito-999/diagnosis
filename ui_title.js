@@ -1,34 +1,51 @@
+/* ui_title.js
+ * export: render(root, ctx) のみ
+ */
 export function render(root, ctx) {
-  const { actions } = ctx;
-
-  root.innerHTML = `
-    <div class="container">
-      <div class="card" id="titleCard" style="cursor:pointer;">
-        <div class="h1">恋愛戦場タイプ診断</div>
-        <div class="h2">あなたが下手でも悪いんでもない。逢ってないだけ。</div>
-        <div class="fadeLoop" aria-label="行ループ表示">
-          <span id="loopText"></span>
-        </div>
-        <div class="small" style="margin-top:14px;">画面をタップすると進みます</div>
-      </div>
-    </div>
-  `;
-
-  const lines = ["会ってる。", "合ってない。", "遇ってる。", "遭ってない。"];
-  let i = 0;
-  const loopEl = root.querySelector("#loopText");
-  const tick = () => {
-    if (!loopEl) return;
-    loopEl.textContent = lines[i % lines.length];
-    loopEl.style.animationDelay = "0s";
-    i += 1;
+  if (!(root instanceof HTMLElement)) return;
+  const { actions } = ctx || {};
+  const goStart = () => {
+    if (actions && typeof actions.go === "function") actions.go("start");
   };
-  tick();
-  const timer = window.setInterval(tick, 400);
 
-  const card = root.querySelector("#titleCard");
-  card?.addEventListener("click", () => {
-    window.clearInterval(timer);
-    actions.go("start");
-  });
+  // 以前のタイマーが残っていたら止める（title の動的表示用）
+  if (root.__uiTitleTimerId) {
+    clearInterval(root.__uiTitleTimerId);
+    root.__uiTitleTimerId = null;
+  }
+
+  root.onclick = null;
+  root.innerHTML = "";
+
+  const wrap = document.createElement("div");
+  wrap.className = "screen screen-title";
+
+  const h1 = document.createElement("h1");
+  h1.textContent = "恋愛戦場タイプ診断";
+
+  const sub = document.createElement("p");
+  sub.className = "subtitle";
+  sub.textContent = "あなたが下手でも悪いんでもない。逢ってないだけ。";
+
+  const helper = document.createElement("p");
+  helper.className = "helper";
+
+  const loopTexts = ["会ってる。", "合ってない。", "遇ってる。", "遭ってない。"];
+  let idx = 0;
+  helper.textContent = loopTexts[idx];
+
+  // 0.8秒ループ表示
+  root.__uiTitleTimerId = setInterval(() => {
+    idx = (idx + 1) % loopTexts.length;
+    helper.textContent = loopTexts[idx];
+  }, 800);
+
+  wrap.appendChild(h1);
+  wrap.appendChild(sub);
+  wrap.appendChild(helper);
+
+  root.appendChild(wrap);
+
+  // 画面全体タップで start
+  root.onclick = goStart;
 }
