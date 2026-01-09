@@ -1,7 +1,7 @@
 /* app.js は本紙（仕様書_本紙）に従属する。 */
 /* import は app.js 最上部に1回だけ記述し、以降の BLOCK START より前にまとめる（契約）。 */
 
-/* ===== BLOCK 0: IMPORTS（BLOCK START/END は付けない） =====
+/***** BLOCK START 0:IMPORTS *****/
    - 本紙の「app.js のブロック分割（契約）」に従い、import はここに集約する
    - dynamic import（import()）は禁止（契約）
 =========================================================== */
@@ -22,10 +22,10 @@ import { render as renderQuestions11_20 } from "./ui_questions_11_20.js";
 import { render as renderAlias } from "./ui_alias.js";
 import { render as renderResult } from "./ui_result.js";
 
-/* ===== END BLOCK 0 ===== */
+/***** BLOCK END 0 *****/
 
 
-/* ===== BLOCK 1: CONSTANTS / TYPES（BLOCK START）=====
+/***** BLOCK START 1:CONSTANTS / TYPES *****/
    - 共有定数・共有型は本ブロックにのみ定義する（契約）
    - 名称は固定（改名禁止）、他ブロックは参照のみ（再宣言禁止）
    - sha256Hex(str) は Promise<string> を返す（await 前提）／16進小文字（契約）
@@ -57,10 +57,10 @@ async function sha256Hex(str) {
   return hex;
 }
 
-/* ===== BLOCK 1: CONSTANTS / TYPES（BLOCK END）===== */
+/***** BLOCK END 1 *****/
 
 
-/* ===== BLOCK 2: STATE（BLOCK START）=====
+/***** BLOCK START 2:STATE *****/
    - ブロック2（STATE）は 状態の定義と初期値のみを持つ（契約）
    - BLOCK 2 で定義してよい関数は persistState() 1つのみ（契約）
    - persistState() は sessionStorage の setItem のみ（契約）
@@ -96,10 +96,10 @@ function persistState() {
   }
 }
 
-/* ===== BLOCK 2: STATE（BLOCK END）===== */
+/***** BLOCK END 2 *****/
 
 
-/***** BLOCK START 3A: INTERNAL_UTILS（質問取得・回答検証・正規化） *****/
+/***** BLOCK START 3A:INTERNAL_UTILS *****/
 
 /**
  * qid 検証（契約：Q1..Q20）
@@ -217,7 +217,7 @@ function _3a_buildAnswersNormalized(answers) {
 /***** BLOCK END 3A *****/
 
 
-/* ===== BLOCK 3B START: INTERNAL_RESULT_BUILD ===== */
+/***** BLOCK START 3B:INTERNAL_RESULT_BUILD *****/
 /**
  * 3B INTERNAL_RESULT_BUILD（契約）
  * - result はこのブロックのみが生成してよい
@@ -395,11 +395,11 @@ async function _3b_buildResult(input) {
   };
 }
 
-/* ===== BLOCK 3B END: INTERNAL_RESULT_BUILD ===== */
+/***** BLOCK END 3B *****/
 
 
 
-/* ===== BLOCK 4: ACTIONS（BLOCK START）=====
+/***** BLOCK START 4:ACTIONS *****/
    - UI が呼んでよい公開操作の唯一の窓口（契約）
    - export const actions は 1 回だけ定義（再宣言禁止）
    - 公開 API は本紙列挙のものに固定（追加・改名禁止）
@@ -484,16 +484,11 @@ export const actions = {
   setAnswer: _actions_setAnswer,
 };
 
-/* ===== BLOCK 4: ACTIONS（BLOCK END）===== */
+/***** BLOCK END 4 *****/
 
 
-/***** BLOCK START 5: FLOW（画面遷移制御） *****/
+/***** BLOCK START 5:FLOW *****/
 
-/**
- * FLOW は BOOTSTRAP から渡された root を内部に保持してよい（契約）。
- * - 保持は root 参照のみ（DOM参照・DOM生成・DOM更新は禁止）
- * - document.getElementById("app") は BOOTSTRAP（ブロック6）のみ許可
- */
 let _FLOW_ROOT = null;
 
 /**
@@ -508,7 +503,7 @@ let _FLOW_ROOT = null;
 function _render_dispatch(root) {
   if (!(root instanceof HTMLElement)) return;
 
-  // root 参照の保持は許可（参照のみ）
+  // root の参照保持は許可（参照のみ）
   _FLOW_ROOT = root;
 
   const ctx = { state, actions };
@@ -553,34 +548,47 @@ function _flow_isIntInRange(v, min, max) {
 }
 
 /**
- * 画面遷移判定に必要な最小限の回答有無判定（契約）
- * - q1_10 は Q1..Q10 のみ
- * - q11_20 は Q11..Q20 のみ
- * ※回答値の意味付け・正規化・加工は禁止（存在/範囲チェックのみ）
+ * 未回答判定の方法（補足・契約）
+ * - 件数のみで判定しない
+ * - 欠損/重複/qid不一致/v不正（1..5整数以外）は「未回答あり」
+ *
+ * 画面別 判定対象質問（補足・契約）
+ * - q1_10 判定対象：Q1..Q10 のみ
+ * - q11_20 判定対象：Q11..Q20 のみ
  *
  * @param {number} from
  * @param {number} to
- * @returns {boolean} true=範囲内が全て回答済み
+ * @returns {boolean} true=範囲内が全て「一意に」回答済み
  */
 function _flow_isAnsweredRange(from, to) {
   if (!Array.isArray(state.answers)) return false;
 
+  const seen = new Set();
+
+  for (const a of state.answers) {
+    if (!a || typeof a !== "object") continue;
+
+    const qid = a.qid;
+    if (typeof qid !== "string") continue;
+
+    const m = /^Q(\d{1,2})$/.exec(qid);
+    if (!m) continue;
+
+    const n = Number(m[1]);
+    if (!Number.isInteger(n) || n < from || n > to) continue;
+
+    // 重複qidは禁止（補足・契約）
+    if (seen.has(qid)) return false;
+
+    // v は 1..5 の整数
+    if (!_flow_isIntInRange(a.v, 1, 5)) return false;
+
+    seen.add(qid);
+  }
+
+  // 欠損がないこと
   for (let i = from; i <= to; i += 1) {
-    const qid = `Q${i}`;
-    let found = false;
-
-    for (const a of state.answers) {
-      if (!a || typeof a !== "object") continue;
-      if (a.qid !== qid) continue;
-
-      const v = a.v;
-      if (_flow_isIntInRange(v, 1, 5)) {
-        found = true;
-      }
-      break;
-    }
-
-    if (!found) return false;
+    if (!seen.has(`Q${i}`)) return false;
   }
 
   return true;
@@ -591,9 +599,9 @@ function _flow_isAnsweredRange(from, to) {
  * 契約：
  * - 画面遷移の実体は FLOW（_flow_go）
  * - actions.go(screen) は _flow_go に委譲
- * - 画面描画は常に _render_dispatch(root) を用いる（引数なし呼び出し禁止）
- * - result 生成は q11_20 完了後、alias へ遷移する直前の 1 箇所のみ
- * - 3B の result 統合生成は非同期になり得るため await してから state.result を確定して遷移
+ * - 画面描画は常に _render_dispatch(root)（引数なし呼び出し禁止）
+ * - result 生成は q11_20 → alias の直前 1 箇所のみ
+ * - 3B は非同期になり得るため await 完了後に state.result を確定して遷移
  *
  * @param {string} next
  */
@@ -625,7 +633,7 @@ async function _flow_go(next) {
   }
 
   // start -> q1_10（診断開始 / ランダム診断）
-  // ランダム回答の生成は UI（actions.setAnswer）で行う契約
+  // ※ランダム回答の生成は UI が actions.setAnswer で行う（契約）
   if (from === "start" && to === "q1_10") {
     state.answersNormalized = null;
     state.result = null;
@@ -659,7 +667,8 @@ async function _flow_go(next) {
   if (from === "q11_20" && to === "alias") {
     if (!_flow_isAnsweredRange(11, 20)) return;
 
-    // alias 遷移の前提：Q1..Q20 が全回答済み（result生成の前提）
+    // alias 遷移の前提：未回答がない（=Q1..Q20が揃い、重複なし、vが1..5整数）
+    // 具体検証は 3A の buildAnswersNormalized に委譲する（契約）
     const normalized = _3a_buildAnswersNormalized(state.answers);
     if (normalized === null) return;
 
@@ -698,7 +707,7 @@ async function _flow_go(next) {
 /***** BLOCK END 5 *****/
 
 
-/* ===== BLOCK 6: BOOTSTRAP（初期化・イベント接続）（BLOCK START）=====
+/***** BLOCK START 6:BOOTSTRAP *****/
    - BOOTSTRAP が行ってよい DOM 操作は document.getElementById("app") による root 取得のみ（契約）
    - BOOTSTRAP はイベント接続（addEventListener 等）を行わない（契約）
    - 必須依存が欠ける場合は即停止、代替処理は行わない（契約）
@@ -804,6 +813,5 @@ async function _flow_go(next) {
   _render_dispatch(root);
 })();
 
-/* ===== BLOCK 6: BOOTSTRAP（BLOCK END）===== */
-
+/***** BLOCK END 6 *****/
 
