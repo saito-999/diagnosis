@@ -1,118 +1,142 @@
-/* ui_questions_11_20.js
- * export: render(root, ctx) のみ
- */
+// ui_questions_11_20.js
+// export は render(root, ctx) のみ（契約） :contentReference[oaicite:5]{index=5}
+
+function _buildLegend() {
+  const p = document.createElement("p");
+  p.className = "legend";
+  p.textContent =
+    '1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる';
+  return p;
+}
+
+function _qidList(from, to) {
+  const out = [];
+  for (let i = from; i <= to; i += 1) out.push(`Q${i}`);
+  return out;
+}
+
+function _isAnswered(actions, qid) {
+  if (!actions || typeof actions.getAnswerValue !== "function") return false;
+  const v = actions.getAnswerValue(qid);
+  return Number.isInteger(v) && v >= 1 && v <= 5;
+}
+
+function _buildChoice(qid, v, checked, onChange) {
+  const label = document.createElement("label");
+  label.className = "choice";
+
+  const input = document.createElement("input");
+  input.type = "radio";
+  input.name = qid;
+  input.value = String(v);
+  input.checked = checked;
+  input.onchange = onChange;
+
+  const span = document.createElement("span");
+  span.textContent = String(v);
+
+  label.appendChild(input);
+  label.appendChild(span);
+  return label;
+}
+
 export function render(root, ctx) {
   if (!(root instanceof HTMLElement)) return;
-  const { actions } = ctx || {};
+  const state = ctx ? ctx.state : null;
+  const actions = ctx ? ctx.actions : null;
 
   root.onclick = null;
   root.innerHTML = "";
 
   const wrap = document.createElement("div");
-  wrap.className = "screen screen-questions screen-q11-20";
+  wrap.className = "screen screen-q11-20";
 
-  const legend = document.createElement("p");
-  legend.className = "legend";
-  legend.textContent =
-    "1=あてはまらない / 2=あまりあてはまらない / 3=どちらともいえない / 4=すこしあてはまる / 5=あてはまる";
+  // 凡例（固定文言） :contentReference[oaicite:6]{index=6}
+  wrap.appendChild(_buildLegend());
 
-  wrap.appendChild(legend);
-
-  const list = document.createElement("div");
-  list.className = "question-list";
-
-  const qids = Array.from({ length: 10 }, (_, i) => `Q${i + 11}`);
-
+  const qids = _qidList(11, 20);
   const questions =
     actions && typeof actions.getQuestionsByQids === "function"
       ? actions.getQuestionsByQids(qids)
       : [];
 
-  const safeQuestions = Array.isArray(questions) ? questions : [];
+  const list = document.createElement("div");
+  list.className = "question-list";
 
-  for (let i = 0; i < qids.length; i += 1) {
-    const qid = qids[i];
-    const q = safeQuestions.find((x) => x && typeof x === "object" && x.qid === qid);
+  for (const qid of qids) {
+    const q =
+      Array.isArray(questions)
+        ? questions.find((x) => x && typeof x === "object" && x.qid === qid)
+        : null;
 
     const block = document.createElement("div");
     block.className = "question";
 
-    const qt = document.createElement("p");
-    qt.className = "qtext";
-    qt.textContent = q && typeof q.text === "string" ? q.text : "";
+    const qText = document.createElement("p");
+    qText.className = "qtext";
+    qText.textContent = q && typeof q.text === "string" ? q.text : "";
+    block.appendChild(qText);
 
-    block.appendChild(qt);
-
-    const radios = document.createElement("div");
-    radios.className = "choices";
+    const choices = document.createElement("div");
+    choices.className = "choices";
 
     const current =
-      actions && typeof actions.getAnswerValue === "function" ? actions.getAnswerValue(qid) : null;
+      actions && typeof actions.getAnswerValue === "function"
+        ? actions.getAnswerValue(qid)
+        : null;
 
     for (let v = 1; v <= 5; v += 1) {
-      const label = document.createElement("label");
-      label.className = "choice";
-
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = qid;
-      input.value = String(v);
-      input.checked = Number(current) === v;
-
-      input.onchange = () => {
-        if (actions && typeof actions.setAnswer === "function") actions.setAnswer(qid, v);
-        updateGoEnabled();
-      };
-
-      const span = document.createElement("span");
-      span.textContent = String(v);
-
-      label.appendChild(input);
-      label.appendChild(span);
-      radios.appendChild(label);
+      const checked = Number(current) === v;
+      choices.appendChild(
+        _buildChoice(qid, v, checked, () => {
+          if (actions && typeof actions.setAnswer === "function") {
+            actions.setAnswer(qid, v);
+            updateNextEnabled();
+          }
+        })
+      );
     }
 
-    block.appendChild(radios);
+    block.appendChild(choices);
     list.appendChild(block);
   }
 
   wrap.appendChild(list);
 
-  const btnWrap = document.createElement("div");
-  btnWrap.className = "buttons";
+  const buttons = document.createElement("div");
+  buttons.className = "buttons";
 
-  const btnGo = document.createElement("button");
-  btnGo.type = "button";
-  btnGo.textContent = "結果へ";
+  // 次へ（alias） :contentReference[oaicite:7]{index=7}
+  const btnNext = document.createElement("button");
+  btnNext.type = "button";
+  btnNext.className = "btn";
+  btnNext.textContent = "次へ";
+  btnNext.onclick = () => {
+    if (actions && typeof actions.go === "function") actions.go("alias");
+  };
 
+  // 戻る（q1_10） :contentReference[oaicite:8]{index=8}
   const btnBack = document.createElement("button");
   btnBack.type = "button";
+  btnBack.className = "btn";
   btnBack.textContent = "戻る";
   btnBack.onclick = () => {
     if (actions && typeof actions.go === "function") actions.go("q1_10");
   };
 
-  btnGo.onclick = () => {
-    if (actions && typeof actions.go === "function") actions.go("alias");
-  };
-
-  btnWrap.appendChild(btnGo);
-  btnWrap.appendChild(btnBack);
-  wrap.appendChild(btnWrap);
+  buttons.appendChild(btnNext);
+  buttons.appendChild(btnBack);
+  wrap.appendChild(buttons);
 
   root.appendChild(wrap);
 
-  function isAnswered(qid) {
-    const v =
-      actions && typeof actions.getAnswerValue === "function" ? actions.getAnswerValue(qid) : null;
-    return Number.isInteger(v) && v >= 1 && v <= 5;
+  // 遷移条件：Q11〜Q20 のみで判定し、全回答で「次へ」有効化 :contentReference[oaicite:9]{index=9}
+  function updateNextEnabled() {
+    const ok = qids.every((qid) => _isAnswered(actions, qid));
+    btnNext.disabled = !ok;
   }
 
-  function updateGoEnabled() {
-    // 表示中10問すべて回答で有効化
-    const ok = qids.every(isAnswered);
-    btnGo.disabled = !ok;
-  }
+  updateNextEnabled();
 
-  updateGoEnabled();
+  void state;
 }
