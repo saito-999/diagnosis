@@ -498,40 +498,39 @@ let _FLOW_ROOT = null;
 
 /**
  * _render_dispatch(root)
- * 契約：5) FLOW に 1つだけ定義。
- * - root は BOOTSTRAP から渡される（契約）
- * - FLOW 内で root を再取得しない（契約）
+ * 契約：
+ * - 画面描画は必ず root を引数として行う（引数なし呼び出し禁止）
+ * - FLOW 内で root を再取得しない
+ * - UI 描画は ui_*.js の render に委譲する
  *
  * @param {HTMLElement} root
  */
 function _render_dispatch(root) {
-  if (root instanceof HTMLElement) {
-    _FLOW_ROOT = root;
-  }
+  if (!(root instanceof HTMLElement)) return;
 
-  const r = _FLOW_ROOT;
-  if (!(r instanceof HTMLElement)) return;
+  // root 参照の保持は許可（参照のみ）
+  _FLOW_ROOT = root;
 
   const ctx = { state, actions };
 
   switch (state.screen) {
     case "title":
-      renderTitle(r, ctx);
+      renderTitle(root, ctx);
       return;
     case "start":
-      renderStart(r, ctx);
+      renderStart(root, ctx);
       return;
     case "q1_10":
-      renderQuestions1_10(r, ctx);
+      renderQuestions1_10(root, ctx);
       return;
     case "q11_20":
-      renderQuestions11_20(r, ctx);
+      renderQuestions11_20(root, ctx);
       return;
     case "alias":
-      renderAlias(r, ctx);
+      renderAlias(root, ctx);
       return;
     case "result":
-      renderResult(r, ctx);
+      renderResult(root, ctx);
       return;
     default:
       return;
@@ -539,7 +538,7 @@ function _render_dispatch(root) {
 }
 
 /**
- * start 画面に遷移する場合、state は全クリアする（契約）
+ * start 画面に遷移する場合、state は全クリア（契約）
  */
 function _flow_clearAllToStart() {
   state.answers = [];
@@ -548,37 +547,53 @@ function _flow_clearAllToStart() {
   state.runMode = "manual";
 }
 
-/**
- * 20問分のランダム回答を生成（試験補助）（契約）
- * - answers は {qid, v} の配列（長さ20）
- * - v は 1..5 の整数
- * @returns {Array<{qid:string,v:number}>}
- */
-function _flow_buildRandomAnswers() {
-  const out = [];
-  for (let n = 1; n <= 20; n += 1) {
-    const v = 1 + Math.floor(Math.random() * 5);
-    out.push({ qid: `Q${n}`, v });
-  }
-  return out;
+/** @returns {boolean} */
+function _flow_isIntInRange(v, min, max) {
+  return Number.isInteger(v) && v >= min && v <= max;
 }
 
 /**
- * 未回答ガード（契約）
- * @returns {boolean}
+ * 画面遷移判定に必要な最小限の回答有無判定（契約）
+ * - q1_10 は Q1..Q10 のみ
+ * - q11_20 は Q11..Q20 のみ
+ * ※回答値の意味付け・正規化・加工は禁止（存在/範囲チェックのみ）
+ *
+ * @param {number} from
+ * @param {number} to
+ * @returns {boolean} true=範囲内が全て回答済み
  */
-function _flow_canProceedFromQuestions() {
-  return _3a_buildAnswersNormalized(state.answers) !== null;
+function _flow_isAnsweredRange(from, to) {
+  if (!Array.isArray(state.answers)) return false;
+
+  for (let i = from; i <= to; i += 1) {
+    const qid = `Q${i}`;
+    let found = false;
+
+    for (const a of state.answers) {
+      if (!a || typeof a !== "object") continue;
+      if (a.qid !== qid) continue;
+
+      const v = a.v;
+      if (_flow_isIntInRange(v, 1, 5)) {
+        found = true;
+      }
+      break;
+    }
+
+    if (!found) return false;
+  }
+
+  return true;
 }
 
 /**
  * _flow_go(screen)
- * 契約：5) FLOW に 1つだけ定義。画面遷移の実体はここ。
- * 4) ACTIONS の actions.go(screen) は _flow_go に委譲する。
- *
- * - 画面描画は常に _render_dispatch(_FLOW_ROOT) を用いる（契約）
- * - result 生成は q11_20 → alias の直前の 1 箇所のみ（契約）
- * - 3B の result 統合生成は非同期（Promise）になり得るため、完了を await（=完了待ち）してから state.result を確定し遷移する（契約）
+ * 契約：
+ * - 画面遷移の実体は FLOW（_flow_go）
+ * - actions.go(screen) は _flow_go に委譲
+ * - 画面描画は常に _render_dispatch(root) を用いる（引数なし呼び出し禁止）
+ * - result 生成は q11_20 完了後、alias へ遷移する直前の 1 箇所のみ
+ * - 3B の result 統合生成は非同期になり得るため await してから state.result を確定して遷移
  *
  * @param {string} next
  */
@@ -586,17 +601,17 @@ async function _flow_go(next) {
   if (typeof next !== "string") return;
   if (!Array.isArray(SCREENS) || !SCREENS.includes(next)) return;
 
+  const root = _FLOW_ROOT;
+  if (!(root instanceof HTMLElement)) return;
+
   const from = state.screen;
   const to = next;
-
-  // root が未設定なら描画できない（補完禁止）
-  if (!(_FLOW_ROOT instanceof HTMLElement)) return;
 
   // title -> start（画面タップ）
   if (from === "title" && to === "start") {
     state.screen = "start";
     persistState();
-    _render_dispatch(_FLOW_ROOT);
+    _render_dispatch(root);
     return;
   }
 
@@ -605,37 +620,29 @@ async function _flow_go(next) {
     _flow_clearAllToStart();
     state.screen = "start";
     persistState();
-    _render_dispatch(_FLOW_ROOT);
+    _render_dispatch(root);
     return;
   }
 
-  // start -> q1_10（診断開始／ランダム診断）
+  // start -> q1_10（診断開始 / ランダム診断）
+  // ランダム回答の生成は UI（actions.setAnswer）で行う契約
   if (from === "start" && to === "q1_10") {
-    // ランダム診断は answers をランダム生成（契約）
-    // UI が既に answers を投入済みの場合は上書きしない（補完禁止）
-    if (
-      state.runMode === "random" &&
-      (!Array.isArray(state.answers) || state.answers.length === 0)
-    ) {
-      state.answers = _flow_buildRandomAnswers();
-    }
-
     state.answersNormalized = null;
     state.result = null;
 
     state.screen = "q1_10";
     persistState();
-    _render_dispatch(_FLOW_ROOT);
+    _render_dispatch(root);
     return;
   }
 
-  // q1_10 -> q11_20（次へ：未回答なら遷移しない）
+  // q1_10 -> q11_20（次へ：Q1..Q10 が全回答済みの場合のみ）
   if (from === "q1_10" && to === "q11_20") {
-    if (!_flow_canProceedFromQuestions()) return;
+    if (!_flow_isAnsweredRange(1, 10)) return;
 
     state.screen = "q11_20";
     persistState();
-    _render_dispatch(_FLOW_ROOT);
+    _render_dispatch(root);
     return;
   }
 
@@ -643,12 +650,16 @@ async function _flow_go(next) {
   if (from === "q11_20" && to === "q1_10") {
     state.screen = "q1_10";
     persistState();
-    _render_dispatch(_FLOW_ROOT);
+    _render_dispatch(root);
     return;
   }
 
-  // q11_20 -> alias（次へ：未回答なら遷移しない／result生成はこの直前の1箇所のみ）
+  // q11_20 -> alias（次へ：Q11..Q20 が全回答済みの場合のみ）
+  // result 生成はこの直前の 1 箇所のみ（契約）
   if (from === "q11_20" && to === "alias") {
+    if (!_flow_isAnsweredRange(11, 20)) return;
+
+    // alias 遷移の前提：Q1..Q20 が全回答済み（result生成の前提）
     const normalized = _3a_buildAnswersNormalized(state.answers);
     if (normalized === null) return;
 
@@ -664,7 +675,7 @@ async function _flow_go(next) {
 
       state.screen = "alias";
       persistState();
-      _render_dispatch(_FLOW_ROOT);
+      _render_dispatch(root);
       return;
     } catch (_) {
       // 補完・代替は禁止。何もしない。
@@ -676,7 +687,7 @@ async function _flow_go(next) {
   if (from === "alias" && to === "result") {
     state.screen = "result";
     persistState();
-    _render_dispatch(_FLOW_ROOT);
+    _render_dispatch(root);
     return;
   }
 
