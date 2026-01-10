@@ -61,11 +61,11 @@ async function sha256Hex(str) {
 
 
 /***** BLOCK START 2:STATE *****/
-   - ブロック2（STATE）は 状態の定義と初期値のみを持つ（契約）
-   - BLOCK 2 で定義してよい関数は persistState() 1つのみ（契約）
-   - persistState() は sessionStorage の setItem のみ（契約）
-   - 保存キー指定は必ず STORAGE_KEY を参照（契約）
-   - 保存対象は screen / answers / result に固定（契約）
+/**   - ブロック2（STATE）は 状態の定義と初期値のみを持つ（契約）
+/**   - BLOCK 2 で定義してよい関数は persistState() 1つのみ（契約）
+/**   - persistState() は sessionStorage の setItem のみ（契約）
+/**   - 保存キー指定は必ず STORAGE_KEY を参照（契約）
+/**   - 保存対象は screen / answers / result に固定（契約）
 /**======================================== */
 
 /** @type {{ screen: string, answers: Array<{qid:string,v:number}>, answersNormalized: number[]|null, result: any|null, runMode: ("manual"|"random")|null }} */
