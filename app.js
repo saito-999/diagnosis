@@ -2,9 +2,9 @@
 /* import は app.js 最上部に1回だけ記述し、以降の BLOCK START より前にまとめる（契約）。 */
 
 /***** BLOCK START 0:IMPORTS *****/
-   - 本紙の「app.js のブロック分割（契約）」に従い、import はここに集約する
-   - dynamic import（import()）は禁止（契約）
-=========================================================== */
+/**   - 本紙の「app.js のブロック分割（契約）」に従い、import はここに集約する
+/**   - dynamic import（import()）は禁止（契約）
+/**=========================================================== */
 
 /* ---- 別紙JS（ブラックボックス）: export 名は本紙の契約どおり ---- */
 import { QUESTIONS } from "./data_questions.js";
@@ -26,10 +26,10 @@ import { render as renderResult } from "./ui_result.js";
 
 
 /***** BLOCK START 1:CONSTANTS / TYPES *****/
-   - 共有定数・共有型は本ブロックにのみ定義する（契約）
-   - 名称は固定（改名禁止）、他ブロックは参照のみ（再宣言禁止）
-   - sha256Hex(str) は Promise<string> を返す（await 前提）／16進小文字（契約）
-======================================== */
+/**   - 共有定数・共有型は本ブロックにのみ定義する（契約）
+/**   - 名称は固定（改名禁止）、他ブロックは参照のみ（再宣言禁止）
+/**   - sha256Hex(str) は Promise<string> を返す（await 前提）／16進小文字（契約）
+/**======================================== */
 
 /** フェーズ内部キー（固定・順序固定） */
 const PHASE_KEYS = ["matching", "firstMeet", "date", "relationship", "marriage"];
@@ -66,7 +66,7 @@ async function sha256Hex(str) {
    - persistState() は sessionStorage の setItem のみ（契約）
    - 保存キー指定は必ず STORAGE_KEY を参照（契約）
    - 保存対象は screen / answers / result に固定（契約）
-======================================== */
+/**======================================== */
 
 /** @type {{ screen: string, answers: Array<{qid:string,v:number}>, answersNormalized: number[]|null, result: any|null, runMode: ("manual"|"random")|null }} */
 const state = {
@@ -400,11 +400,11 @@ async function _3b_buildResult(input) {
 
 
 /***** BLOCK START 4:ACTIONS *****/
-   - UI が呼んでよい公開操作の唯一の窓口（契約）
-   - export const actions は 1 回だけ定義（再宣言禁止）
-   - 公開 API は本紙列挙のものに固定（追加・改名禁止）
-   - DOM を直接触らない（契約）
-======================================== */
+/**   - UI が呼んでよい公開操作の唯一の窓口（契約）
+/**   - export const actions は 1 回だけ定義（再宣言禁止）
+/**   - 公開 API は本紙列挙のものに固定（追加・改名禁止）
+/**   - DOM を直接触らない（契約）
+/**======================================== */
 
 /**
  * actions.go(screen)
@@ -708,17 +708,17 @@ async function _flow_go(next) {
 
 
 /***** BLOCK START 6:BOOTSTRAP *****/
-   - BOOTSTRAP が行ってよい DOM 操作は document.getElementById("app") による root 取得のみ（契約）
-   - BOOTSTRAP はイベント接続（addEventListener 等）を行わない（契約）
-   - 必須依存が欠ける場合は即停止、代替処理は行わない（契約）
-   - 状態保持は sessionStorage（localStorage 禁止）（契約）
-   - 復元時の検証はブロック6内で完結（他ブロックの内部関数を参照しない）（契約）
-   - 起動時に sessionStorage(STORAGE_KEY) を読み、JSON 解析失敗時は復元しない（契約）
-   - 復元対象は screen / answers / result のみ（契約）
-   - answers 復元は「未回答の定義」を満たすときのみ（契約）
-   - result 復元は object のときのみ（契約）
-   - 起動処理の最後に render を1回だけ呼ぶ（契約）：_render_dispatch(root)
-======================================== */
+/**   - BOOTSTRAP が行ってよい DOM 操作は document.getElementById("app") による root 取得のみ（契約）
+/**   - BOOTSTRAP はイベント接続（addEventListener 等）を行わない（契約）
+/**   - 必須依存が欠ける場合は即停止、代替処理は行わない（契約）
+/**   - 状態保持は sessionStorage（localStorage 禁止）（契約）
+/**   - 復元時の検証はブロック6内で完結（他ブロックの内部関数を参照しない）（契約）
+/**   - 起動時に sessionStorage(STORAGE_KEY) を読み、JSON 解析失敗時は復元しない（契約）
+/**   - 復元対象は screen / answers / result のみ（契約）
+/**   - answers 復元は「未回答の定義」を満たすときのみ（契約）
+/**   - result 復元は object のときのみ（契約）
+/**   - 起動処理の最後に render を1回だけ呼ぶ（契約）：_render_dispatch(root)
+/**======================================== */
 
 (function bootstrap() {
   // DOM 操作は root 取得のみ（契約）
