@@ -487,7 +487,7 @@ export const actions = {
 /***** BLOCK END 4 *****/
 
 
-/***** BLOCK START 5:FLOW *****/
+/***** BLOCK START 5: FLOW（画面遷移制御） *****/
 
 let _FLOW_ROOT = null;
 
@@ -495,7 +495,7 @@ let _FLOW_ROOT = null;
  * _render_dispatch(root)
  * 契約：
  * - 画面描画は必ず root を引数として行う（引数なし呼び出し禁止）
- * - FLOW 内で root を再取得しない
+ * - FLOW 内で root を再取得しない（document.getElementById 禁止）
  * - UI 描画は ui_*.js の render に委譲する
  *
  * @param {HTMLElement} root
@@ -503,7 +503,7 @@ let _FLOW_ROOT = null;
 function _render_dispatch(root) {
   if (!(root instanceof HTMLElement)) return;
 
-  // root の参照保持は許可（参照のみ）
+  // root 参照の保持は許可（参照のみ）
   _FLOW_ROOT = root;
 
   const ctx = { state, actions };
@@ -532,29 +532,14 @@ function _render_dispatch(root) {
   }
 }
 
-/**
- * start 画面に遷移する場合、state は全クリア（契約）
- */
-function _flow_clearAllToStart() {
-  state.answers = [];
-  state.answersNormalized = null;
-  state.result = null;
-  state.runMode = "manual";
-}
-
-/** @returns {boolean} */
 function _flow_isIntInRange(v, min, max) {
   return Number.isInteger(v) && v >= min && v <= max;
 }
 
 /**
- * 未回答判定の方法（補足・契約）
- * - 件数のみで判定しない
- * - 欠損/重複/qid不一致/v不正（1..5整数以外）は「未回答あり」
- *
- * 画面別 判定対象質問（補足・契約）
- * - q1_10 判定対象：Q1..Q10 のみ
- * - q11_20 判定対象：Q11..Q20 のみ
+ * 未回答判定（補足・契約）
+ * - 件数だけで判定しない
+ * - qid の欠損/重複、vの不正（1..5整数以外）は「未回答あり」
  *
  * @param {number} from
  * @param {number} to
@@ -577,7 +562,7 @@ function _flow_isAnsweredRange(from, to) {
     const n = Number(m[1]);
     if (!Number.isInteger(n) || n < from || n > to) continue;
 
-    // 重複qidは禁止（補足・契約）
+    // 重複qidは禁止
     if (seen.has(qid)) return false;
 
     // v は 1..5 の整数
@@ -595,12 +580,24 @@ function _flow_isAnsweredRange(from, to) {
 }
 
 /**
+ * start へ遷移する場合は全クリア（契約）
+ */
+function _flow_clearAllToStart() {
+  state.screen = "start";
+  state.answers = [];
+  state.answersNormalized = null;
+  state.result = null;
+  state.runMode = "manual";
+}
+
+/**
  * _flow_go(screen)
  * 契約：
  * - 画面遷移の実体は FLOW（_flow_go）
  * - actions.go(screen) は _flow_go に委譲
  * - 画面描画は常に _render_dispatch(root)（引数なし呼び出し禁止）
- * - result 生成は q11_20 → alias の直前 1 箇所のみ
+ * - 計算・集計・文章取得は q11_20 完了後（q11_20→alias直前）のみ
+ * - result 生成は q11_20→alias直前の1箇所のみ
  * - 3B は非同期になり得るため await 完了後に state.result を確定して遷移
  *
  * @param {string} next
@@ -615,7 +612,7 @@ async function _flow_go(next) {
   const from = state.screen;
   const to = next;
 
-  // title -> start（画面タップ）
+  // title -> start
   if (from === "title" && to === "start") {
     state.screen = "start";
     persistState();
@@ -623,28 +620,26 @@ async function _flow_go(next) {
     return;
   }
 
-  // どこからでも start へ：全クリア（契約）
+  // どこからでも start（全クリア）
   if (to === "start") {
     _flow_clearAllToStart();
-    state.screen = "start";
     persistState();
     _render_dispatch(root);
     return;
   }
 
   // start -> q1_10（診断開始 / ランダム診断）
-  // ※ランダム回答の生成は UI が actions.setAnswer で行う（契約）
+  // ランダム回答の生成は UI が actions.setAnswer で行う（契約）
   if (from === "start" && to === "q1_10") {
     state.answersNormalized = null;
     state.result = null;
-
     state.screen = "q1_10";
     persistState();
     _render_dispatch(root);
     return;
   }
 
-  // q1_10 -> q11_20（次へ：Q1..Q10 が全回答済みの場合のみ）
+  // q1_10 -> q11_20（次へ：Q1..Q10 のみで未回答判定）
   if (from === "q1_10" && to === "q11_20") {
     if (!_flow_isAnsweredRange(1, 10)) return;
 
@@ -662,13 +657,12 @@ async function _flow_go(next) {
     return;
   }
 
-  // q11_20 -> alias（次へ：Q11..Q20 が全回答済みの場合のみ）
-  // result 生成はこの直前の 1 箇所のみ（契約）
+  // q11_20 -> alias（次へ：Q11..Q20 のみで未回答判定）
+  // 計算・集計・文章取得はここ（q11_20完了後）のみ
   if (from === "q11_20" && to === "alias") {
     if (!_flow_isAnsweredRange(11, 20)) return;
 
-    // alias 遷移の前提：未回答がない（=Q1..Q20が揃い、重複なし、vが1..5整数）
-    // 具体検証は 3A の buildAnswersNormalized に委譲する（契約）
+    // 未回答の定義（Q1..Q20 揃い/重複なし/v 1..5整数）を満たす場合のみ正規化・別紙へ
     const normalized = _3a_buildAnswersNormalized(state.answers);
     if (normalized === null) return;
 
@@ -687,12 +681,11 @@ async function _flow_go(next) {
       _render_dispatch(root);
       return;
     } catch (_) {
-      // 補完・代替は禁止。何もしない。
       return;
     }
   }
 
-  // alias -> result（画面タップ：回答保持）
+  // alias -> result（回答保持）
   if (from === "alias" && to === "result") {
     state.screen = "result";
     persistState();
@@ -700,7 +693,7 @@ async function _flow_go(next) {
     return;
   }
 
-  // それ以外は未定義：遷移しない（補完禁止）
+  // それ以外は未定義：遷移しない
   return;
 }
 
