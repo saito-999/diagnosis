@@ -408,10 +408,11 @@ async function _3b_buildResult(input) {
 
 /**
  * actions.go(screen)
- * - screen を SCREENS で検証してから遷移（契約）
- * - 画面遷移の実体は FLOW（_flow_go）に委譲（契約）
+ * - screen は SCREENS で検証してから遷移
+ * - 画面遷移の実体は FLOW（_flow_go）
  * @param {any} screen
  */
+
 function _actions_go(screen) {
   if (typeof screen !== "string") return;
   if (!Array.isArray(SCREENS) || !SCREENS.includes(screen)) return;
@@ -420,7 +421,7 @@ function _actions_go(screen) {
 
 /**
  * actions.getQuestionsByQids(qids)
- * - 実装は 3A（INTERNAL_UTILS）の質問取得処理に必ず委譲（契約）
+ * - 実装は 3A（INTERNAL_UTILS）の質問取得処理に必ず委譲
  * @param {any} qids
  * @returns {any[]}
  */
@@ -450,13 +451,20 @@ function _actions_getAnswerValue(qid) {
 
 /**
  * actions.setAnswer(qid, v)
- * - state.answers の更新と persistState() 呼び出しのみ（契約）
- * - 他の計算・結果生成は禁止
+ * - state.answers の更新と persistState() 呼び出しのみ（他の計算・結果生成は禁止）
  * @param {any} qid
  * @param {any} v
  */
 function _actions_setAnswer(qid, v) {
   if (typeof qid !== "string") return;
+
+  // qid は "Q1"〜"Q20" のみ許可
+  const m = /^Q(\d{1,2})$/.exec(qid);
+  if (!m) return;
+  const n = Number(m[1]);
+  if (!Number.isInteger(n) || n < 1 || n > 20) return;
+
+  // v は 1..5 の整数のみ許可
   if (!Number.isInteger(v) || v < 1 || v > 5) return;
 
   if (!state || typeof state !== "object") return;
@@ -473,7 +481,7 @@ function _actions_setAnswer(qid, v) {
 
   state.answers = next;
 
-  // 契約：保存は persistState() を呼ぶだけ
+  // 保存は persistState() を呼ぶだけ
   persistState();
 }
 
