@@ -1,12 +1,15 @@
-/* ui_start.js
- * export: render(root, ctx) のみ
- */
+// ui_start.js
+// export は render(root, ctx) のみ
+
+function _randInt1to5() {
+  return 1 + Math.floor(Math.random() * 5);
+}
+
 export function render(root, ctx) {
   if (!(root instanceof HTMLElement)) return;
-  const { actions } = ctx || {};
 
-  root.onclick = null;
   root.innerHTML = "";
+  root.onclick = null;
 
   const wrap = document.createElement("div");
   wrap.className = "screen screen-start";
@@ -36,15 +39,23 @@ export function render(root, ctx) {
   btnStart.type = "button";
   btnStart.textContent = "▶ 診断を始める";
   btnStart.onclick = () => {
-    if (actions && typeof actions.go === "function") actions.go("q1_10");
+    const actions = ctx && ctx.actions;
+    if (!actions) return;
+    actions.go("q1_10");
   };
 
   const btnRandom = document.createElement("button");
   btnRandom.type = "button";
   btnRandom.textContent = "ランダム診断";
   btnRandom.onclick = () => {
-    // 仕様：遷移は actions 経由のみ。ランダム回答生成は app.js 側の責務。
-    if (actions && typeof actions.go === "function") actions.go("q1_10");
+    const actions = ctx && ctx.actions;
+    if (!actions) return;
+
+    // Q1..Q20 を全入力（qid重複なし、vは1..5整数）
+    for (let i = 1; i <= 20; i += 1) {
+      actions.setAnswer(`Q${i}`, _randInt1to5());
+    }
+    actions.go("q1_10");
   };
 
   btnWrap.appendChild(btnStart);

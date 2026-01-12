@@ -1,21 +1,24 @@
-/* ui_alias.js
- * export: render(root, ctx) のみ
- */
+// ui_alias.js
+// export は render(root, ctx) のみ
+
 export function render(root, ctx) {
   if (!(root instanceof HTMLElement)) return;
-  const { state, actions } = ctx || {};
 
   root.innerHTML = "";
+  root.onclick = null;
+
+  const state = ctx && ctx.state;
+  const actions = ctx && ctx.actions;
 
   const wrap = document.createElement("div");
   wrap.className = "screen screen-alias";
 
-  const nickname = state && state.result && typeof state.result.nickname === "string" ? state.result.nickname : "";
+  const nickname =
+    state && state.result && typeof state.result.nickname === "string" ? state.result.nickname : "";
 
   const text = document.createElement("div");
   text.className = "alias-text";
   text.textContent = nickname;
-
   wrap.appendChild(text);
 
   const imgSrc =
@@ -31,8 +34,8 @@ export function render(root, ctx) {
 
   root.appendChild(wrap);
 
-  // 画面全体タップで result
+  // 画面タップで result
   root.onclick = () => {
-    if (actions && typeof actions.go === "function") actions.go("result");
+    actions.go("result");
   };
 }
