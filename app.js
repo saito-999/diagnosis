@@ -545,48 +545,74 @@ function _flow_isIntInRange(v, min, max) {
 }
 
 /**
+ * 判定用の「最新のみ有効」回答マップを作る（契約：重複は拒否理由にしない）
+ * - qid が Q{1..20} 以外は無視
+ * - v が 1..5 の整数以外は無視
+ * - 同一 qid は後勝ち（最新のみ有効）
+ *
+ * @returns {Map<string, number>}
+ */
+function _flow_buildLatestAnswerMap() {
+  const latest = new Map();
+  if (!Array.isArray(state.answers)) return latest;
+
+  for (const a of state.answers) {
+    if (!a || typeof a !== "object") continue;
+    if (typeof a.qid !== "string") continue;
+
+    const m = /^Q(\d{1,2})$/.exec(a.qid);
+    if (!m) continue;
+
+    const n = Number(m[1]);
+    if (!Number.isInteger(n) || n < 1 || n > 20) continue;
+
+    if (!_flow_isIntInRange(a.v, 1, 5)) continue;
+
+    latest.set(a.qid, a.v);
+  }
+
+  return latest;
+}
+
+/**
  * 未回答判定（契約）
  * - 件数のみで判定しない
- * - 対象範囲の qid が一意に揃っていること（欠損・重複なし）
+ * - 対象範囲の qid がすべて存在すること（欠損なし）
  * - v が 1..5 の整数であること
+ * - 重複 qid の存在を理由に遷移を拒否してはならない（最新のみ有効）
  *
  * @param {number} from
  * @param {number} to
  * @returns {boolean}
  */
 function _flow_isAnsweredRange(from, to) {
-  if (!Array.isArray(state.answers)) return false;
+  const latest = _flow_buildLatestAnswerMap();
 
-  const seen = new Set();
-
-  for (const a of state.answers) {
-    if (!a || typeof a !== "object") continue;
-
-    const qid = a.qid;
-    if (typeof qid !== "string") continue;
-
-    const m = /^Q(\d{1,2})$/.exec(qid);
-    if (!m) continue;
-
-    const n = Number(m[1]);
-    if (!Number.isInteger(n)) continue;
-    if (n < from || n > to) continue;
-
-    // 重複qidは禁止
-    if (seen.has(qid)) return false;
-
-    // v は 1..5 の整数
-    if (!_flow_isIntInRange(a.v, 1, 5)) return false;
-
-    seen.add(qid);
-  }
-
-  // 欠損がないこと
   for (let i = from; i <= to; i += 1) {
-    if (!seen.has(`Q${i}`)) return false;
+    if (!latest.has(`Q${i}`)) return false;
+  }
+  return true;
+}
+
+/**
+ * 別紙へ引き渡すための {qid,v} 配列（length=20）を「最新のみ有効」で作る
+ * - state.answers は変更しない（ローカル生成）
+ * - 欠損があれば null
+ *
+ * @returns {Array<{qid:string,v:number}>|null}
+ */
+function _flow_buildAnswersLatest20() {
+  const latest = _flow_buildLatestAnswerMap();
+  const out = [];
+
+  for (let i = 1; i <= 20; i += 1) {
+    const qid = `Q${i}`;
+    const v = latest.get(qid);
+    if (!_flow_isIntInRange(v, 1, 5)) return null;
+    out.push({ qid, v });
   }
 
-  return true;
+  return out;
 }
 
 /**
@@ -639,17 +665,18 @@ async function _flow_go(next) {
   }
 
   // start -> q1_10（診断開始 / ランダム診断）
-  // ランダム回答の生成は UI が actions.setAnswer で行う（契約）
+  // ※ランダム回答の生成は UI が actions.setAnswer で行う（契約）
   if (from === "start" && to === "q1_10") {
     state.answersNormalized = null;
     state.result = null;
+
     state.screen = "q1_10";
     persistState();
     _render_dispatch(root);
     return;
   }
 
-  // q1_10 -> q11_20（次へ：Q1..Q10 のみで未回答判定）
+  // q1_10 -> q11_20（次へ：Q1..Q10 のみで判定）
   if (from === "q1_10" && to === "q11_20") {
     if (!_flow_isAnsweredRange(1, 10)) return;
 
@@ -667,18 +694,22 @@ async function _flow_go(next) {
     return;
   }
 
-  // q11_20 -> alias（次へ：Q11..Q20 のみで未回答判定）
-  // 計算・集計・文章取得はここ（q11_20完了後）のみ
+  // q11_20 -> alias（次へ：Q11..Q20 のみで判定）
+  // 計算・集計・文章取得はここ（q11_20 完了後）のみ
   if (from === "q11_20" && to === "alias") {
+    // 画面別判定は Q11..Q20 のみ
     if (!_flow_isAnsweredRange(11, 20)) return;
 
-    // 未回答がある場合は別紙ロジックへ引き渡さない（契約）
-    const normalized = _3a_buildAnswersNormalized(state.answers);
+    // 別紙へ引き渡す前提（未回答なし：Q1..Q20 の最新が揃うこと）
+    const answersLatest20 = _flow_buildAnswersLatest20();
+    if (answersLatest20 === null) return;
+
+    const normalized = _3a_buildAnswersNormalized(answersLatest20);
     if (normalized === null) return;
 
     try {
       const built = await _3b_buildResult({
-        answers: state.answers,
+        answers: answersLatest20,
         answersNormalized: normalized,
       });
       if (built === null) return;
@@ -707,7 +738,6 @@ async function _flow_go(next) {
   // それ以外は未定義：遷移しない
   return;
 }
-
 
 /***** BLOCK END 5 *****/
 
