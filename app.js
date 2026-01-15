@@ -545,13 +545,14 @@ function _flow_isIntInRange(v, min, max) {
 }
 
 /**
- * 未回答判定（補足・契約）
- * - 件数だけで判定しない
- * - qid の欠損/重複、vの不正（1..5整数以外）は「未回答あり」
+ * 未回答判定（契約）
+ * - 件数のみで判定しない
+ * - 対象範囲の qid が一意に揃っていること（欠損・重複なし）
+ * - v が 1..5 の整数であること
  *
  * @param {number} from
  * @param {number} to
- * @returns {boolean} true=範囲内が全て「一意に」回答済み
+ * @returns {boolean}
  */
 function _flow_isAnsweredRange(from, to) {
   if (!Array.isArray(state.answers)) return false;
@@ -568,7 +569,8 @@ function _flow_isAnsweredRange(from, to) {
     if (!m) continue;
 
     const n = Number(m[1]);
-    if (!Number.isInteger(n) || n < from || n > to) continue;
+    if (!Number.isInteger(n)) continue;
+    if (n < from || n > to) continue;
 
     // 重複qidは禁止
     if (seen.has(qid)) return false;
@@ -670,7 +672,7 @@ async function _flow_go(next) {
   if (from === "q11_20" && to === "alias") {
     if (!_flow_isAnsweredRange(11, 20)) return;
 
-    // 未回答の定義（Q1..Q20 揃い/重複なし/v 1..5整数）を満たす場合のみ正規化・別紙へ
+    // 未回答がある場合は別紙ロジックへ引き渡さない（契約）
     const normalized = _3a_buildAnswersNormalized(state.answers);
     if (normalized === null) return;
 
@@ -689,6 +691,7 @@ async function _flow_go(next) {
       _render_dispatch(root);
       return;
     } catch (_) {
+      // 代替・補完は禁止
       return;
     }
   }
@@ -704,6 +707,7 @@ async function _flow_go(next) {
   // それ以外は未定義：遷移しない
   return;
 }
+
 
 /***** BLOCK END 5 *****/
 
