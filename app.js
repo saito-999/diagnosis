@@ -495,248 +495,102 @@ export const actions = {
 /***** BLOCK END 4 *****/
 
 
-/***** BLOCK START 5: FLOW（画面遷移制御） *****/
+/***** BLOCK 5: FLOW（画面遷移制御） START *****/
 
-let _FLOW_ROOT = null;
+let _flow_root = null;
 
 /**
- * _render_dispatch(root)
- * 契約：
- * - 画面描画は必ず root を引数として行う（引数なし呼び出し禁止）
- * - FLOW 内で root を再取得しない（document.getElementById 禁止）
- * - UI 描画は ui_*.js の render に委譲する
- *
- * @param {HTMLElement} root
+ * BOOTSTRAP から root を受け取り保持する
+ * DOM参照・生成は禁止（root保持のみ）
  */
-function _render_dispatch(root) {
-  if (!(root instanceof HTMLElement)) return;
+export function _flow_init(root) {
+  _flow_root = root;
+}
 
-  // root 参照の保持は許可（参照のみ）
-  _FLOW_ROOT = root;
+/**
+ * 画面描画の唯一のディスパッチ
+ * 必ず root を引数で受け取る
+ */
+export function _render_dispatch(root) {
+  if (!root) return;
 
   const ctx = { state, actions };
 
   switch (state.screen) {
     case "title":
       renderTitle(root, ctx);
-      return;
+      break;
     case "start":
       renderStart(root, ctx);
-      return;
+      break;
     case "q1_10":
       renderQuestions1_10(root, ctx);
-      return;
+      break;
     case "q11_20":
       renderQuestions11_20(root, ctx);
-      return;
+      break;
     case "alias":
       renderAlias(root, ctx);
-      return;
+      break;
     case "result":
       renderResult(root, ctx);
-      return;
+      break;
     default:
-      return;
-  }
-}
-
-function _flow_isIntInRange(v, min, max) {
-  return Number.isInteger(v) && v >= min && v <= max;
-}
-
-/**
- * 判定用の「最新のみ有効」回答マップを作る（契約：重複は拒否理由にしない）
- * - qid が Q{1..20} 以外は無視
- * - v が 1..5 の整数以外は無視
- * - 同一 qid は後勝ち（最新のみ有効）
- *
- * @returns {Map<string, number>}
- */
-function _flow_buildLatestAnswerMap() {
-  const latest = new Map();
-  if (!Array.isArray(state.answers)) return latest;
-
-  for (const a of state.answers) {
-    if (!a || typeof a !== "object") continue;
-    if (typeof a.qid !== "string") continue;
-
-    const m = /^Q(\d{1,2})$/.exec(a.qid);
-    if (!m) continue;
-
-    const n = Number(m[1]);
-    if (!Number.isInteger(n) || n < 1 || n > 20) continue;
-
-    if (!_flow_isIntInRange(a.v, 1, 5)) continue;
-
-    latest.set(a.qid, a.v);
-  }
-
-  return latest;
-}
-
-/**
- * 未回答判定（契約）
- * - 件数のみで判定しない
- * - 対象範囲の qid がすべて存在すること（欠損なし）
- * - v が 1..5 の整数であること
- * - 重複 qid の存在を理由に遷移を拒否してはならない（最新のみ有効）
- *
- * @param {number} from
- * @param {number} to
- * @returns {boolean}
- */
-function _flow_isAnsweredRange(from, to) {
-  const latest = _flow_buildLatestAnswerMap();
-
-  for (let i = from; i <= to; i += 1) {
-    if (!latest.has(`Q${i}`)) return false;
-  }
-  return true;
-}
-
-/**
- * 別紙へ引き渡すための {qid,v} 配列（length=20）を「最新のみ有効」で作る
- * - state.answers は変更しない（ローカル生成）
- * - 欠損があれば null
- *
- * @returns {Array<{qid:string,v:number}>|null}
- */
-function _flow_buildAnswersLatest20() {
-  const latest = _flow_buildLatestAnswerMap();
-  const out = [];
-
-  for (let i = 1; i <= 20; i += 1) {
-    const qid = `Q${i}`;
-    const v = latest.get(qid);
-    if (!_flow_isIntInRange(v, 1, 5)) return null;
-    out.push({ qid, v });
-  }
-
-  return out;
-}
-
-/**
- * start へ遷移する場合は全クリア（契約）
- */
-function _flow_clearAllToStart() {
-  state.screen = "start";
-  state.answers = [];
-  state.answersNormalized = null;
-  state.result = null;
-  state.runMode = "manual";
-}
-
-/**
- * _flow_go(screen)
- * 契約：
- * - 画面遷移の実体は FLOW（_flow_go）
- * - actions.go(screen) は _flow_go に委譲
- * - 画面描画は常に _render_dispatch(root)（引数なし呼び出し禁止）
- * - 計算・集計・文章取得は q11_20 完了後（q11_20→alias直前）のみ
- * - result 生成は q11_20→alias直前の1箇所のみ
- * - 3B は非同期になり得るため await 完了後に state.result を確定して遷移
- *
- * @param {string} next
- */
-async function _flow_go(next) {
-  if (typeof next !== "string") return;
-  if (!Array.isArray(SCREENS) || !SCREENS.includes(next)) return;
-
-  const root = _FLOW_ROOT;
-  if (!(root instanceof HTMLElement)) return;
-
-  const from = state.screen;
-  const to = next;
-
-  // title -> start
-  if (from === "title" && to === "start") {
-    state.screen = "start";
-    persistState();
-    _render_dispatch(root);
-    return;
-  }
-
-  // どこからでも start（全クリア）
-  if (to === "start") {
-    _flow_clearAllToStart();
-    persistState();
-    _render_dispatch(root);
-    return;
-  }
-
-  // start -> q1_10（診断開始 / ランダム診断）
-  // ※ランダム回答の生成は UI が actions.setAnswer で行う（契約）
-  if (from === "start" && to === "q1_10") {
-    state.answersNormalized = null;
-    state.result = null;
-
-    state.screen = "q1_10";
-    persistState();
-    _render_dispatch(root);
-    return;
-  }
-
-  // q1_10 -> q11_20（次へ：Q1..Q10 のみで判定）
-  if (from === "q1_10" && to === "q11_20") {
-    if (!_flow_isAnsweredRange(1, 10)) return;
-
-    state.screen = "q11_20";
-    persistState();
-    _render_dispatch(root);
-    return;
-  }
-
-  // q11_20 -> q1_10（戻る：回答保持）
-  if (from === "q11_20" && to === "q1_10") {
-    state.screen = "q1_10";
-    persistState();
-    _render_dispatch(root);
-    return;
-  }
-
-  // q11_20 -> alias（次へ：Q11..Q20 のみで判定）
-  // 計算・集計・文章取得はここ（q11_20 完了後）のみ
-  if (from === "q11_20" && to === "alias") {
-    // 画面別判定は Q11..Q20 のみ
-    if (!_flow_isAnsweredRange(11, 20)) return;
-
-    // 別紙へ引き渡す前提（未回答なし：Q1..Q20 の最新が揃うこと）
-    const answersLatest20 = _flow_buildAnswersLatest20();
-    if (answersLatest20 === null) return;
-
-    const normalized = _3a_buildAnswersNormalized(answersLatest20);
-    if (normalized === null) return;
-
-    try {
-      const built = await _3b_buildResult({
-        answers: answersLatest20,
-        answersNormalized: normalized,
-      });
-      if (built === null) return;
-
-      state.answersNormalized = normalized;
-      state.result = built;
-
-      state.screen = "alias";
+      // 不正な screen は title に戻す
+      state.screen = "title";
       persistState();
-      _render_dispatch(root);
-      return;
-    } catch (_) {
-      // 代替・補完は禁止
-      return;
+      renderTitle(root, ctx);
+  }
+}
+
+/**
+ * 画面遷移の実体
+ * ACTIONS.go からのみ呼ばれる
+ */
+export async function _flow_go(screen) {
+  if (!SCREENS.includes(screen)) return;
+
+  // q1_10 → q11_20 判定（Q1〜Q10のみ）
+  if (state.screen === "q1_10" && screen === "q11_20") {
+    const qids = Array.from({ length: 10 }, (_, i) => `Q${i + 1}`);
+    const answered = qids.every((qid) => {
+      const v = actions.getAnswerValue(qid);
+      return Number.isInteger(v) && v >= 1 && v <= 5;
+    });
+    if (!answered) return;
+  }
+
+  // q11_20 → alias 判定（Q11〜Q20のみ）
+  if (state.screen === "q11_20" && screen === "alias") {
+    const qids = Array.from({ length: 10 }, (_, i) => `Q${i + 11}`);
+    const answered = qids.every((qid) => {
+      const v = actions.getAnswerValue(qid);
+      return Number.isInteger(v) && v >= 1 && v <= 5;
+    });
+    if (!answered) return;
+
+    // result 生成（失敗しても遷移は止めない）
+    try {
+      const r = await buildResult();
+      state.result = r ?? null;
+    } catch {
+      state.result = null;
     }
   }
 
-  // alias -> result（回答保持）
-  if (from === "alias" && to === "result") {
-    state.screen = "result";
-    persistState();
-    _render_dispatch(root);
-    return;
+  // result → start の場合は state を全クリア
+  if (state.screen === "result" && screen === "start") {
+    state.answers = [];
+    state.answersNormalized = null;
+    state.result = null;
   }
 
-  // それ以外は未定義：遷移しない
-  return;
+  state.screen = screen;
+  persistState();
+
+  if (_flow_root) {
+    _render_dispatch(_flow_root);
+  }
 }
 
 /***** BLOCK END 5 *****/
